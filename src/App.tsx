@@ -1,18 +1,19 @@
 import { useState, useEffect } from "react";
 import { Auth } from "./pages/Auth";
 import { GameManager } from "./pages/GameManager";
+import { MyGames } from "./pages/MyGames";
 import { Lobby } from "./pages/Lobby";
 import { Game } from "./pages/Game";
 import { logBackendStatus } from "./utils/healthCheck";
 import type { User, Game as GameType } from "./types";
 
-type AppStep = "auth" | "gameManager" | "lobby" | "game";
+type AppStep = "auth" | "gameManager" | "myGames" | "lobby" | "game";
 
 export default function App() {
   const [currentStep, setCurrentStep] = useState<AppStep>("auth");
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentGame, setCurrentGame] = useState<GameType | null>(null);
-  const [gameData, setGameData] = useState<any>({});
+  const [gameData, setGameData] = useState<Record<string, unknown>>({});
   const [isHost, setIsHost] = useState<boolean>(false);
 
   // Verificar salud del backend al cargar la aplicación
@@ -32,17 +33,14 @@ export default function App() {
     console.log("Usuario cerrando sesión");
     setCurrentUser(null);
     setCurrentGame(null);
+    setGameData({});
+    setIsHost(false);
     setCurrentStep("auth");
   };
 
   // Manejar unión a juego
   const handleJoinGame = (game: GameType) => {
     console.log("Uniéndose al juego:", game);
-    console.log("Tipo de game en handleJoinGame:", typeof game);
-    console.log(
-      "Estructura de game en handleJoinGame:",
-      JSON.stringify(game, null, 2)
-    );
 
     if (game && game.id && game.code) {
       setCurrentGame(game);
@@ -52,13 +50,36 @@ export default function App() {
     }
   };
 
+  // Manejar unión a juego desde MyGames
+  const handleJoinGameFromMyGames = async (username: string, code: string, isNewGame: boolean) => {
+    console.log("Uniéndose al juego desde MyGames:", { username, code, isNewGame });
+
+    try {
+      // Aquí podrías hacer una llamada a la API para unirse al juego
+      // Por ahora, simulamos la unión
+      const game: GameType = {
+        id: "temp-id",
+        code: code,
+        status: "WAITING",
+        players: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        rounds: [],
+        scores: [],
+      };
+
+      setCurrentGame(game);
+      setCurrentStep("lobby");
+    } catch (error) {
+      console.error("Error uniéndose al juego:", error);
+    }
+  };
+
   // Manejar inicio de juego
-  const handleGameStart = (data?: any) => {
+  const handleGameStart = (data?: Record<string, unknown>) => {
     console.log("Iniciando juego con datos:", data);
     if (data) {
       setGameData(data);
-      // Determinar si es host basado en el primer jugador del lobby
-      // Por ahora lo determinamos por el username del usuario actual
       setIsHost(currentUser?.username === data.hostUsername || false);
     }
     setCurrentStep("game");
@@ -67,7 +88,6 @@ export default function App() {
   // Manejar regreso al lobby
   const handleBackToLobby = () => {
     console.log("Regresando al lobby");
-    // Limpiar datos del juego para la siguiente ronda
     setGameData({});
     setIsHost(false);
     setCurrentStep("lobby");
@@ -79,35 +99,16 @@ export default function App() {
       return <Auth onAuthSuccess={handleAuthSuccess} />;
 
     case "gameManager":
-      return (
-        <GameManager
-          user={currentUser!}
-          onJoinGame={handleJoinGame}
-          onLogout={handleLogout}
-        />
-      );
+      return <GameManager user={currentUser!} onJoinGame={handleJoinGame} onLogout={handleLogout} onShowMyGames={() => setCurrentStep("myGames")} />;
+
+    case "myGames":
+      return <MyGames userId={currentUser!.id} username={currentUser!.username} onJoinGame={handleJoinGameFromMyGames} onBack={() => setCurrentStep("gameManager")} />;
 
     case "lobby":
-      return (
-        <Lobby
-          username={currentUser!.username}
-          gameCode={currentGame!.code}
-          currentUser={currentUser!}
-          onGameStart={handleGameStart}
-          onBackToGameManager={() => setCurrentStep("gameManager")}
-        />
-      );
+      return <Lobby username={currentUser!.username} gameCode={currentGame!.code} currentUser={currentUser!} onGameStart={handleGameStart} onBackToGameManager={() => setCurrentStep("gameManager")} />;
 
     case "game":
-      return (
-        <Game
-          username={currentUser!.username}
-          gameCode={currentGame!.code}
-          isHost={isHost}
-          gameData={gameData}
-          onBackToLobby={handleBackToLobby}
-        />
-      );
+      return <Game username={currentUser!.username} gameCode={currentGame!.code} isHost={isHost} gameData={gameData} onBackToLobby={handleBackToLobby} />;
 
     default:
       return <Auth onAuthSuccess={handleAuthSuccess} />;

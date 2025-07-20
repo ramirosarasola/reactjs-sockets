@@ -1,22 +1,9 @@
-import type {
-  User,
-  Game,
-  ApiResponse,
-  GameScore,
-  CreateRoundResponse,
-  SaveRoundAnswerResponse,
-  RoundDetailsResponse,
-  FinishRoundResponse,
-  RoundAnswer,
-} from "../types";
+import type { User, Game, ApiResponse, GameScore, CreateRoundResponse, SaveRoundAnswerResponse, RoundDetailsResponse, FinishRoundResponse, RoundAnswer, UserGame } from "../types";
 
 const API_BASE_URL = "http://localhost:5001";
 
 class ApiService {
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<ApiResponse<T>> {
+  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
     try {
       const url = `${API_BASE_URL}${endpoint}`;
       const config: RequestInit = {
@@ -36,8 +23,7 @@ class ApiService {
 
       if (!response.ok) {
         return {
-          error:
-            data.error || `HTTP ${response.status}: ${response.statusText}`,
+          error: data.error || `HTTP ${response.status}: ${response.statusText}`,
         };
       }
 
@@ -48,8 +34,7 @@ class ApiService {
       // Manejo específico de errores de red
       if (error instanceof TypeError && error.message.includes("fetch")) {
         return {
-          error:
-            "No se pudo conectar con el servidor. Verifica que el backend esté ejecutándose.",
+          error: "No se pudo conectar con el servidor. Verifica que el backend esté ejecutándose.",
         };
       }
 
@@ -59,11 +44,8 @@ class ApiService {
     }
   }
 
-  // Usuarios
-  async registerUser(
-    username: string,
-    email: string
-  ): Promise<ApiResponse<User>> {
+  // ===== USERS =====
+  async registerUser(username: string, email: string): Promise<ApiResponse<User>> {
     return this.request<User>("/users/register", {
       method: "POST",
       body: JSON.stringify({ username, email }),
@@ -77,10 +59,7 @@ class ApiService {
     });
   }
 
-  async createUser(
-    username: string,
-    email: string
-  ): Promise<ApiResponse<User>> {
+  async createUser(username: string, email: string): Promise<ApiResponse<User>> {
     return this.request<User>("/users", {
       method: "POST",
       body: JSON.stringify({ username, email }),
@@ -88,9 +67,7 @@ class ApiService {
   }
 
   async findUserByUsername(username: string): Promise<ApiResponse<User>> {
-    return this.request<User>(
-      `/users/search?username=${encodeURIComponent(username)}`
-    );
+    return this.request<User>(`/users/search?username=${encodeURIComponent(username)}`);
   }
 
   async findUserByEmail(email: string): Promise<ApiResponse<User>> {
@@ -101,7 +78,7 @@ class ApiService {
     return this.request<User>(`/users/${id}`);
   }
 
-  // Juegos
+  // ===== GAMES =====
   async createGame(userId: string): Promise<ApiResponse<Game>> {
     return this.request<Game>("/games", {
       method: "POST",
@@ -109,15 +86,15 @@ class ApiService {
     });
   }
 
-  async joinGame(userId: string, code: string): Promise<ApiResponse<Game>> {
+  async joinGame(userId: string, gameId: string): Promise<ApiResponse<Game>> {
     return this.request<Game>("/games/join", {
       method: "POST",
-      body: JSON.stringify({ userId, code }),
+      body: JSON.stringify({ userId, gameId }),
     });
   }
 
   async getGameByCode(code: string): Promise<ApiResponse<Game>> {
-    return this.request<Game>(`/games/code/${code}`);
+    return this.request<Game>(`/games/${code}`);
   }
 
   async getGameById(id: string): Promise<ApiResponse<Game>> {
@@ -128,10 +105,7 @@ class ApiService {
     return this.request<Game>(`/games/${gameId}/details`);
   }
 
-  async updateGameStatus(
-    gameId: string,
-    status: string
-  ): Promise<ApiResponse<Game>> {
+  async updateGameStatus(gameId: string, status: string): Promise<ApiResponse<Game>> {
     return this.request<Game>(`/games/${gameId}/status`, {
       method: "PUT",
       body: JSON.stringify({ status }),
@@ -146,11 +120,7 @@ class ApiService {
     return this.request<GameScore[]>(`/games/${gameId}/player-scores`);
   }
 
-  async saveGameScore(
-    gameId: string,
-    userId: string,
-    score: number
-  ): Promise<ApiResponse<GameScore>> {
+  async saveGameScore(gameId: string, userId: string, score: number): Promise<ApiResponse<GameScore>> {
     return this.request<GameScore>("/games/scores", {
       method: "POST",
       body: JSON.stringify({ gameId, userId, score }),
@@ -158,70 +128,47 @@ class ApiService {
   }
 
   async getActiveGames(): Promise<ApiResponse<Game[]>> {
-    return this.request<Game[]>("/games/active/list");
+    return this.request<Game[]>("/games");
   }
 
-  // Rondas
-  async createRound(
-    gameId: string,
-    roundNumber: number,
-    letter: string
-  ): Promise<ApiResponse<CreateRoundResponse>> {
+  async getUserGames(userId: string): Promise<ApiResponse<{ games: UserGame[] }>> {
+    return this.request<{ games: UserGame[] }>(`/games/user/${userId}`);
+  }
+
+  // ===== ROUNDS =====
+  async createRound(gameId: string, roundNumber: number, letter: string): Promise<ApiResponse<CreateRoundResponse>> {
     return this.request<CreateRoundResponse>("/rounds", {
       method: "POST",
       body: JSON.stringify({ gameId, roundNumber, letter }),
     });
   }
 
-  async saveRoundAnswer(
-    gameId: string,
-    roundNumber: number,
-    userId: string,
-    answers: Record<string, string>
-  ): Promise<ApiResponse<SaveRoundAnswerResponse>> {
+  async saveRoundAnswer(gameId: string, roundNumber: number, userId: string, answers: Record<string, string>): Promise<ApiResponse<SaveRoundAnswerResponse>> {
     return this.request<SaveRoundAnswerResponse>("/rounds/answer", {
       method: "POST",
       body: JSON.stringify({ gameId, roundNumber, userId, answers }),
     });
   }
 
-  async getRoundDetails(
-    gameId: string,
-    roundNumber: number
-  ): Promise<ApiResponse<RoundDetailsResponse>> {
-    return this.request<RoundDetailsResponse>(
-      `/rounds/${gameId}/${roundNumber}`
-    );
+  async getRoundDetails(gameId: string, roundNumber: number): Promise<ApiResponse<RoundDetailsResponse>> {
+    return this.request<RoundDetailsResponse>(`/rounds/${gameId}/${roundNumber}`);
   }
 
-  async getGameRounds(
-    gameId: string
-  ): Promise<ApiResponse<RoundDetailsResponse[]>> {
+  async getGameRounds(gameId: string): Promise<ApiResponse<RoundDetailsResponse[]>> {
     return this.request<RoundDetailsResponse[]>(`/rounds/${gameId}`);
   }
 
-  async finishRound(
-    gameId: string,
-    roundNumber: number
-  ): Promise<ApiResponse<FinishRoundResponse>> {
-    return this.request<FinishRoundResponse>(
-      `/rounds/${gameId}/${roundNumber}/finish`,
-      {
-        method: "PUT",
-      }
-    );
+  async finishRound(gameId: string, roundNumber: number): Promise<ApiResponse<FinishRoundResponse>> {
+    return this.request<FinishRoundResponse>(`/rounds/${gameId}/${roundNumber}/finish`, {
+      method: "PUT",
+    });
   }
 
-  async getRoundAnswers(
-    gameId: string,
-    roundNumber: number
-  ): Promise<ApiResponse<RoundAnswer[]>> {
-    return this.request<RoundAnswer[]>(
-      `/rounds/${gameId}/${roundNumber}/answers`
-    );
+  async getRoundAnswers(gameId: string, roundNumber: number): Promise<ApiResponse<RoundAnswer[]>> {
+    return this.request<RoundAnswer[]>(`/rounds/${gameId}/${roundNumber}/answers`);
   }
 
-  // Health check
+  // ===== HEALTH CHECK =====
   async healthCheck(): Promise<ApiResponse<{ status: string }>> {
     return this.request<{ status: string }>("/health");
   }

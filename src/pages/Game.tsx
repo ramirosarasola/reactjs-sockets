@@ -27,8 +27,10 @@ interface GameProps {
   gameCode: string;
   isHost: boolean; // le pasamos si es host
   gameData: GameStartedData;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   game?: any; // Para compatibilidad con el nuevo flujo
-  user?: any; // Para compatibilidad con el nuevo flujo
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  user?: any;
   onBackToLobby?: () => void;
 }
 
@@ -44,14 +46,10 @@ export const Game: React.FC<GameProps> = ({
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [timeLeft, setTimeLeft] = useState<number>(60);
   const [finished, setFinished] = useState(false);
-  const [started, setStarted] = useState(
-    !!gameData.letter || gameData.autoStarted
-  );
+  const [started, setStarted] = useState(!!gameData.letter || gameData.autoStarted);
   const [finishedBy, setFinishedBy] = useState<string>("");
   const [scores, setScores] = useState<Record<string, number>>({});
-  const [currentRound, setCurrentRound] = useState<number>(
-    gameData.roundNumber || 1
-  );
+  const [currentRound, setCurrentRound] = useState<number>(gameData.roundNumber || 1);
 
   useEffect(() => {
     if (!socket) {
@@ -68,10 +66,10 @@ export const Game: React.FC<GameProps> = ({
 
     console.log("Socket conectado en Game, gameCode:", gameCode);
 
-    // Asegurar que estamos en la sala correcta
+    // Ensure we are in the correct room
     emit("join_game", { gameCode, username });
 
-    // Escucha el evento game_started con la letra sorteada
+    // Listen to the game_started event with the letter drawn
     on("game_started", (data: GameStartedData) => {
       console.log("Juego iniciado desde Game:", data);
       setLetter(data.letter || "");
@@ -87,40 +85,37 @@ export const Game: React.FC<GameProps> = ({
       }
     });
 
-    // Escucha cuando alguien termina la ronda
-    on(
-      "round_finished",
-      (data: {
-        finishedBy: string;
-        answers: Record<string, string>;
-        scores: Record<string, number>;
-        roundNumber: number;
-      }) => {
-        console.log("Ronda terminada por:", data.finishedBy);
-        console.log("Puntuaciones actualizadas:", data.scores);
-        setFinishedBy(data.finishedBy);
-        setScores(data.scores);
-        setFinished(true);
-      }
-    );
+    // Listen when someone finishes the round
+    on("round_finished", (data: { finishedBy: string; answers: Record<string, string>; scores: Record<string, number>; roundNumber: number }) => {
+      console.log("Ronda terminada por:", data.finishedBy);
+      console.log("Puntuaciones actualizadas:", data.scores);
+      setFinishedBy(data.finishedBy);
+      setScores(data.scores);
+      setFinished(true);
+    });
 
     return () => {
       off("game_started");
       off("round_finished");
     };
-  }, [socket, gameCode, username, emit, on, off]);
+  }, [socket, gameCode, username, letter, started, gameData, isHost, currentRound, emit, on, off]);
 
   useEffect(() => {
     if (!started) return;
     if (finished) return;
     if (timeLeft === 0) {
       setFinished(true);
-      // Aquí deberías enviar las respuestas por socket
+      emit("tuti_fruti_finished", {
+        gameCode,
+        username,
+        answers: inputs,
+      });
       return;
     }
-    const timer = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
+    const timer = setTimeout(() => setTimeLeft((t) => t - 1), 1000 * 60);
     return () => clearTimeout(timer);
-  }, [started, timeLeft, finished]);
+    // TODO: CHECK IF THIS DEPENDENCIES ARE CORRECT OR ARE GONNA GENERATE INFINITE RENDERS
+  }, [started, timeLeft, finished, emit, gameCode, username, inputs]);
 
   const handleChange = (cat: string, value: string) => {
     if (value && value[0].toUpperCase() !== letter) return;
@@ -128,16 +123,16 @@ export const Game: React.FC<GameProps> = ({
   };
 
   const handleFinish = () => {
-    console.log("Enviando tuti_fruti_finished con datos:", {
+    console.log("Sending tuti_fruti_finished with data:", {
       gameCode,
       username,
       answers: inputs,
     });
 
     setFinished(true);
-    setFinishedBy(username); // Marcar que terminé yo
+    setFinishedBy(username); // Mark that I finished
 
-    // Enviar las respuestas al servidor
+    // Send the answers to the server
     emit("tuti_fruti_finished", {
       gameCode,
       username,
@@ -145,7 +140,6 @@ export const Game: React.FC<GameProps> = ({
     });
 
     console.log(`Jugador ${username} terminó en sala ${gameCode}`);
-    alert("¡Tuti Fruti enviado!");
   };
 
   const handleNextRound = () => {
@@ -153,7 +147,7 @@ export const Game: React.FC<GameProps> = ({
     console.log("Datos enviados:", { gameCode, username });
     emit("start_next_round", { gameCode, username });
 
-    // Navegar de vuelta al lobby para la siguiente ronda
+    // Navigate back to the lobby for the next round
     if (onBackToLobby) {
       onBackToLobby();
     }
@@ -170,8 +164,7 @@ export const Game: React.FC<GameProps> = ({
       <div
         className="min-h-screen flex items-center justify-center"
         style={{
-          background:
-            "linear-gradient(135deg, var(--primary-50), var(--secondary-50))",
+          background: "linear-gradient(135deg, var(--primary-50), var(--secondary-50))",
           padding: "var(--space-4)",
         }}
       >
@@ -193,9 +186,7 @@ export const Game: React.FC<GameProps> = ({
                 fontSize: "var(--font-size-lg)",
               }}
             >
-              {isHost
-                ? "Eres el host - puedes iniciar cuando estés listo"
-                : "El host iniciará la ronda pronto"}
+              {isHost ? "Eres el host - puedes iniciar cuando estés listo" : "El host iniciará la ronda pronto"}
             </p>
           </div>
         </Card>
@@ -207,8 +198,7 @@ export const Game: React.FC<GameProps> = ({
     <div
       className="min-h-screen"
       style={{
-        background:
-          "linear-gradient(135deg, var(--primary-50), var(--secondary-50))",
+        background: "linear-gradient(135deg, var(--primary-50), var(--secondary-50))",
         padding: "var(--space-4)",
       }}
     >
@@ -229,8 +219,7 @@ export const Game: React.FC<GameProps> = ({
                 fontWeight: "var(--font-weight-bold)",
                 color: "var(--gray-900)",
                 marginBottom: "var(--space-4)",
-                background:
-                  "linear-gradient(135deg, var(--primary-600), var(--secondary-600))",
+                background: "linear-gradient(135deg, var(--primary-600), var(--secondary-600))",
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 backgroundClip: "text",
@@ -282,21 +271,15 @@ export const Game: React.FC<GameProps> = ({
                 style={{
                   textAlign: "center",
                   padding: "var(--space-4)",
-                  backgroundColor:
-                    timeLeft <= 10 ? "var(--error-100)" : "var(--warning-100)",
+                  backgroundColor: timeLeft <= 10 ? "var(--error-100)" : "var(--warning-100)",
                   borderRadius: "var(--radius-lg)",
-                  border: `2px solid ${
-                    timeLeft <= 10 ? "var(--error-300)" : "var(--warning-300)"
-                  }`,
+                  border: `2px solid ${timeLeft <= 10 ? "var(--error-300)" : "var(--warning-300)"}`,
                 }}
               >
                 <p
                   style={{
                     fontSize: "var(--font-size-sm)",
-                    color:
-                      timeLeft <= 10
-                        ? "var(--error-700)"
-                        : "var(--warning-700)",
+                    color: timeLeft <= 10 ? "var(--error-700)" : "var(--warning-700)",
                     marginBottom: "var(--space-1)",
                   }}
                 >
@@ -306,10 +289,7 @@ export const Game: React.FC<GameProps> = ({
                   style={{
                     fontSize: "var(--font-size-2xl)",
                     fontWeight: "var(--font-weight-bold)",
-                    color:
-                      timeLeft <= 10
-                        ? "var(--error-600)"
-                        : "var(--warning-600)",
+                    color: timeLeft <= 10 ? "var(--error-600)" : "var(--warning-600)",
                   }}
                 >
                   {timeLeft}s
@@ -355,9 +335,7 @@ export const Game: React.FC<GameProps> = ({
                     value={inputs[cat.key] || ""}
                     maxLength={20}
                     disabled={finished}
-                    onChange={(e) =>
-                      handleChange(cat.key, e.target.value.toUpperCase())
-                    }
+                    onChange={(e) => handleChange(cat.key, e.target.value.toUpperCase())}
                     placeholder={`Con ${letter}`}
                     style={{
                       width: "100%",
@@ -377,12 +355,7 @@ export const Game: React.FC<GameProps> = ({
             {/* Botón de finalizar */}
             {!finished && (
               <div style={{ textAlign: "center" }}>
-                <Button
-                  onClick={handleFinish}
-                  size="lg"
-                  variant="success"
-                  className="bounce-in"
-                >
+                <Button onClick={handleFinish} size="lg" variant="success" className="bounce-in">
                   ¡Tuti Fruti!
                 </Button>
               </div>
@@ -417,31 +390,19 @@ export const Game: React.FC<GameProps> = ({
                     textAlign: "center",
                     marginBottom: "var(--space-4)",
                     padding: "var(--space-4)",
-                    backgroundColor:
-                      finishedBy === username
-                        ? "var(--success-100)"
-                        : "var(--primary-100)",
+                    backgroundColor: finishedBy === username ? "var(--success-100)" : "var(--primary-100)",
                     borderRadius: "var(--radius-lg)",
-                    border: `1px solid ${
-                      finishedBy === username
-                        ? "var(--success-300)"
-                        : "var(--primary-300)"
-                    }`,
+                    border: `1px solid ${finishedBy === username ? "var(--success-300)" : "var(--primary-300)"}`,
                   }}
                 >
                   <p
                     style={{
-                      color:
-                        finishedBy === username
-                          ? "var(--success-700)"
-                          : "var(--primary-700)",
+                      color: finishedBy === username ? "var(--success-700)" : "var(--primary-700)",
                       fontWeight: "var(--font-weight-medium)",
                       fontSize: "var(--font-size-lg)",
                     }}
                   >
-                    {finishedBy === username
-                      ? "¡Terminaste primero! Los demás no pueden seguir escribiendo."
-                      : `Terminada por: ${finishedBy}`}
+                    {finishedBy === username ? "¡Terminaste primero! Los demás no pueden seguir escribiendo." : `Terminada por: ${finishedBy}`}
                   </p>
                 </div>
               )}
@@ -480,8 +441,7 @@ export const Game: React.FC<GameProps> = ({
                           fontSize: "var(--font-size-base)",
                         }}
                       >
-                        🏆 <strong>{finishedBy}</strong> ganó esta ronda y
-                        recibió <strong>+10 puntos</strong>!
+                        🏆 <strong>{finishedBy}</strong> ganó esta ronda y recibió <strong>+10 puntos</strong>!
                       </p>
                     </div>
                   )}
@@ -503,20 +463,9 @@ export const Game: React.FC<GameProps> = ({
                             justifyContent: "space-between",
                             alignItems: "center",
                             padding: "var(--space-3)",
-                            backgroundColor:
-                              player === username
-                                ? "var(--primary-100)"
-                                : player === finishedBy
-                                ? "var(--success-100)"
-                                : "white",
+                            backgroundColor: player === username ? "var(--primary-100)" : player === finishedBy ? "var(--success-100)" : "white",
                             borderRadius: "var(--radius-md)",
-                            border: `1px solid ${
-                              player === username
-                                ? "var(--primary-300)"
-                                : player === finishedBy
-                                ? "var(--success-300)"
-                                : "var(--gray-200)"
-                            }`,
+                            border: `1px solid ${player === username ? "var(--primary-300)" : player === finishedBy ? "var(--success-300)" : "var(--gray-200)"}`,
                           }}
                         >
                           <div
@@ -572,10 +521,7 @@ export const Game: React.FC<GameProps> = ({
                             style={{
                               fontSize: "var(--font-size-lg)",
                               fontWeight: "var(--font-weight-bold)",
-                              color:
-                                player === finishedBy
-                                  ? "var(--success-600)"
-                                  : "var(--primary-600)",
+                              color: player === finishedBy ? "var(--success-600)" : "var(--primary-600)",
                             }}
                           >
                             {score} pts

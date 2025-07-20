@@ -6,9 +6,12 @@ import type { User } from "../types";
 
 interface HomeProps {
   onJoin: (user: string, code: string, isNewGame: boolean) => Promise<void>;
+  onShowMyGames?: () => void;
+  userId?: string;
+  username?: string;
 }
 
-export const Home: React.FC<HomeProps> = ({ onJoin }) => {
+export const Home: React.FC<HomeProps> = ({ onJoin, onShowMyGames, userId, username: currentUsername }) => {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [gameCode, setGameCode] = useState("");
@@ -56,9 +59,7 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
 
     try {
       // Crear usuario primero
-      await createUser(() =>
-        apiService.createUser(username.trim(), email.trim())
-      );
+      await createUser(() => apiService.createUser(username.trim(), email.trim()));
 
       // Unirse al juego
       await onJoin(username.trim(), gameCode.trim(), isNewGame);
@@ -72,25 +73,20 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
     <div
       className="min-h-screen flex items-center justify-center"
       style={{
-        background:
-          "linear-gradient(135deg, var(--primary-50), var(--secondary-50))",
+        background: "linear-gradient(135deg, var(--primary-50), var(--secondary-50))",
         padding: "var(--space-4)",
       }}
     >
       <div style={{ width: "100%", maxWidth: "28rem" }}>
         <Card className="fade-in">
-          <div
-            className="text-center"
-            style={{ marginBottom: "var(--space-8)" }}
-          >
+          <div className="text-center" style={{ marginBottom: "var(--space-8)" }}>
             <h1
               style={{
                 fontSize: "var(--font-size-4xl)",
                 fontWeight: "var(--font-weight-bold)",
                 color: "var(--gray-900)",
                 marginBottom: "var(--space-2)",
-                background:
-                  "linear-gradient(135deg, var(--primary-600), var(--secondary-600))",
+                background: "linear-gradient(135deg, var(--primary-600), var(--secondary-600))",
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 backgroundClip: "text",
@@ -110,27 +106,10 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Usuario */}
-            <Input
-              name="username"
-              label="Nombre de usuario"
-              placeholder="Ingresa tu nombre"
-              value={username}
-              onChange={setUsername}
-              error={errors.username}
-              required
-            />
+            <Input name="username" label="Nombre de usuario" placeholder="Ingresa tu nombre" value={username} onChange={setUsername} error={errors.username} required />
 
             {/* Email */}
-            <Input
-              name="email"
-              label="Email"
-              type="email"
-              placeholder="tu@email.com"
-              value={email}
-              onChange={setEmail}
-              error={errors.email}
-              required
-            />
+            <Input name="email" label="Email" type="email" placeholder="tu@email.com" value={email} onChange={setEmail} error={errors.email} required />
 
             {/* Tipo de juego */}
             <div className="space-y-3">
@@ -157,16 +136,8 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
                     cursor: "pointer",
                   }}
                 >
-                  <input
-                    type="radio"
-                    name="gameType"
-                    checked={isNewGame}
-                    onChange={() => setIsNewGame(true)}
-                    style={{ marginRight: "var(--space-2)" }}
-                  />
-                  <span style={{ fontSize: "var(--font-size-sm)" }}>
-                    Nuevo juego
-                  </span>
+                  <input type="radio" name="gameType" checked={isNewGame} onChange={() => setIsNewGame(true)} style={{ marginRight: "var(--space-2)" }} />
+                  <span style={{ fontSize: "var(--font-size-sm)" }}>Nuevo juego</span>
                 </label>
                 <label
                   style={{
@@ -175,32 +146,14 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
                     cursor: "pointer",
                   }}
                 >
-                  <input
-                    type="radio"
-                    name="gameType"
-                    checked={!isNewGame}
-                    onChange={() => setIsNewGame(false)}
-                    style={{ marginRight: "var(--space-2)" }}
-                  />
-                  <span style={{ fontSize: "var(--font-size-sm)" }}>
-                    Unirse a juego
-                  </span>
+                  <input type="radio" name="gameType" checked={!isNewGame} onChange={() => setIsNewGame(false)} style={{ marginRight: "var(--space-2)" }} />
+                  <span style={{ fontSize: "var(--font-size-sm)" }}>Unirse a juego</span>
                 </label>
               </div>
             </div>
 
             {/* Código del juego */}
-            {!isNewGame && (
-              <Input
-                name="gameCode"
-                label="Código del juego"
-                placeholder="ABC123"
-                value={gameCode}
-                onChange={setGameCode}
-                error={errors.gameCode}
-                required
-              />
-            )}
+            {!isNewGame && <Input name="gameCode" label="Código del juego" placeholder="ABC123" value={gameCode} onChange={setGameCode} error={errors.gameCode} required />}
 
             {/* Error general */}
             {errors.general && (
@@ -224,15 +177,18 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
             )}
 
             {/* Botón de envío */}
-            <Button
-              type="submit"
-              loading={creatingUser}
-              disabled={creatingUser}
-              className="w-full"
-              size="lg"
-            >
+            <Button type="submit" loading={creatingUser} disabled={creatingUser} className="w-full" size="lg">
               {isNewGame ? "Crear juego" : "Unirse al juego"}
             </Button>
+
+            {/* Botón Mis Partidas */}
+            {userId && currentUsername && onShowMyGames && (
+              <div style={{ marginTop: "var(--space-4)" }}>
+                <Button onClick={onShowMyGames} variant="secondary" className="w-full" size="lg">
+                  Mis Partidas
+                </Button>
+              </div>
+            )}
           </form>
 
           {/* Información adicional */}

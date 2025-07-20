@@ -75,6 +75,19 @@ export interface GameScore {
   };
 }
 
+// Tipo para juegos del usuario (respuesta del backend)
+export interface UserGame {
+  id: string;
+  code: string;
+  status: "WAITING" | "PLAYING" | "FINISHED" | "CANCELLED";
+  playerCount: number;
+  createdAt: string;
+  players: Array<{
+    id: string;
+    username: string;
+  }>;
+}
+
 export interface GameState {
   currentRound: number;
   letter: string;
@@ -118,6 +131,7 @@ export interface SocketEvents {
     scores: Record<string, number>;
     roundNumber: number;
   };
+  player_left: { username: string; message: string };
   error: { message: string };
 }
 
