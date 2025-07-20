@@ -22,34 +22,34 @@ interface GameStartedData {
   [key: string]: unknown;
 }
 
+interface RoundData {
+  roundNumber: number;
+  letter: string;
+  answers: Record<string, string>;
+  finishedBy: string;
+  scores: Record<string, number>;
+  timeLeft: number;
+}
+
 interface GameProps {
   username: string;
   gameCode: string;
-  isHost: boolean; // le pasamos si es host
+  isHost: boolean;
   gameData: GameStartedData;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  game?: any; // Para compatibilidad con el nuevo flujo
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  user?: any;
+  game?: unknown;
+  user?: unknown;
   onBackToLobby?: () => void;
 }
 
-export const Game: React.FC<GameProps> = ({
-  username, // Se usará para identificar al jugador
-  gameCode, // Se usará para enviar respuestas
-  isHost, // Se usará para funcionalidades del host
-  gameData,
-  onBackToLobby,
-}) => {
+export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData, onBackToLobby }) => {
   const { socket, emit, on, off } = useSocket();
-  const [letter, setLetter] = useState<string>(gameData.letter || "");
-  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [currentLetter, setCurrentLetter] = useState<string>(gameData.letter || "");
+  const [currentInputs, setCurrentInputs] = useState<Record<string, string>>({});
   const [timeLeft, setTimeLeft] = useState<number>(60);
-  const [finished, setFinished] = useState(false);
-  const [started, setStarted] = useState(!!gameData.letter || gameData.autoStarted);
-  const [finishedBy, setFinishedBy] = useState<string>("");
-  const [scores, setScores] = useState<Record<string, number>>({});
   const [currentRound, setCurrentRound] = useState<number>(gameData.roundNumber || 1);
+  const [isPlaying, setIsPlaying] = useState(!!gameData.letter || gameData.autoStarted);
+  const [rounds, setRounds] = useState<RoundData[]>([]);
+  const [currentScores, setCurrentScores] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!socket) {
@@ -58,8 +58,8 @@ export const Game: React.FC<GameProps> = ({
     }
 
     console.log("🎮 Game.tsx - Estado inicial:");
-    console.log("   Letter:", letter);
-    console.log("   Started:", started);
+    console.log("   CurrentLetter:", currentLetter);
+    console.log("   IsPlaying:", isPlaying);
     console.log("   GameData:", gameData);
     console.log("   IsHost:", isHost);
     console.log("   CurrentRound:", currentRound);
@@ -72,9 +72,11 @@ export const Game: React.FC<GameProps> = ({
     // Listen to the game_started event with the letter drawn
     on("game_started", (data: GameStartedData) => {
       console.log("Juego iniciado desde Game:", data);
-      setLetter(data.letter || "");
-      setStarted(true);
+      setCurrentLetter(data.letter || "");
+      setIsPlaying(true);
       setCurrentRound(data.roundNumber || 1);
+      setTimeLeft(60);
+      setCurrentInputs({});
 
       if (data.autoStarted) {
         console.log("Juego iniciado automáticamente por timeout");
@@ -89,54 +91,62 @@ export const Game: React.FC<GameProps> = ({
     on("round_finished", (data: { finishedBy: string; answers: Record<string, string>; scores: Record<string, number>; roundNumber: number }) => {
       console.log("Ronda terminada por:", data.finishedBy);
       console.log("Puntuaciones actualizadas:", data.scores);
-      setFinishedBy(data.finishedBy);
-      setScores(data.scores);
-      setFinished(true);
+
+      // Agregar la ronda completada a la tabla
+      const newRound: RoundData = {
+        roundNumber: data.roundNumber,
+        letter: currentLetter,
+        answers: data.answers,
+        finishedBy: data.finishedBy,
+        scores: data.scores,
+        timeLeft: timeLeft,
+      };
+
+      setRounds((prev) => [...prev, newRound]);
+      setCurrentScores(data.scores);
+      setIsPlaying(false);
     });
 
     return () => {
       off("game_started");
       off("round_finished");
     };
-  }, [socket, gameCode, username, letter, started, gameData, isHost, currentRound, emit, on, off]);
+  }, [socket, gameCode, username, currentLetter, isPlaying, gameData, isHost, currentRound, emit, on, off, timeLeft]);
 
   useEffect(() => {
-    if (!started) return;
-    if (finished) return;
+    if (!isPlaying) return;
     if (timeLeft === 0) {
-      setFinished(true);
+      setIsPlaying(false);
       emit("tuti_fruti_finished", {
         gameCode,
         username,
-        answers: inputs,
+        answers: currentInputs,
       });
       return;
     }
-    const timer = setTimeout(() => setTimeLeft((t) => t - 1), 1000 * 60);
+    const timer = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
     return () => clearTimeout(timer);
-    // TODO: CHECK IF THIS DEPENDENCIES ARE CORRECT OR ARE GONNA GENERATE INFINITE RENDERS
-  }, [started, timeLeft, finished, emit, gameCode, username, inputs]);
+  }, [isPlaying, timeLeft, emit, gameCode, username, currentInputs]);
 
   const handleChange = (cat: string, value: string) => {
-    if (value && value[0].toUpperCase() !== letter) return;
-    setInputs((prev) => ({ ...prev, [cat]: value }));
+    if (value && value[0].toUpperCase() !== currentLetter) return;
+    setCurrentInputs((prev) => ({ ...prev, [cat]: value }));
   };
 
   const handleFinish = () => {
     console.log("Sending tuti_fruti_finished with data:", {
       gameCode,
       username,
-      answers: inputs,
+      answers: currentInputs,
     });
 
-    setFinished(true);
-    setFinishedBy(username); // Mark that I finished
+    setIsPlaying(false);
 
     // Send the answers to the server
     emit("tuti_fruti_finished", {
       gameCode,
       username,
-      answers: inputs,
+      answers: currentInputs,
     });
 
     console.log(`Jugador ${username} terminó en sala ${gameCode}`);
@@ -146,11 +156,6 @@ export const Game: React.FC<GameProps> = ({
     console.log("Iniciando siguiente ronda desde Game");
     console.log("Datos enviados:", { gameCode, username });
     emit("start_next_round", { gameCode, username });
-
-    // Navigate back to the lobby for the next round
-    if (onBackToLobby) {
-      onBackToLobby();
-    }
   };
 
   const handleBackToLobby = () => {
@@ -159,7 +164,8 @@ export const Game: React.FC<GameProps> = ({
     }
   };
 
-  if (!started) {
+  // Si no hay letra actual y no se está jugando, mostrar pantalla de espera
+  if (!currentLetter && !isPlaying && rounds.length === 0) {
     return (
       <div
         className="min-h-screen flex items-center justify-center"
@@ -202,13 +208,13 @@ export const Game: React.FC<GameProps> = ({
         padding: "var(--space-4)",
       }}
     >
-      <div style={{ maxWidth: "800px", margin: "0 auto" }}>
+      <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
         <Card className="fade-in">
           {/* Header del juego */}
           <div
             style={{
               textAlign: "center",
-              marginBottom: "var(--space-8)",
+              marginBottom: "var(--space-6)",
               padding: "var(--space-6)",
               borderBottom: "1px solid var(--gray-200)",
             }}
@@ -225,347 +231,349 @@ export const Game: React.FC<GameProps> = ({
                 backgroundClip: "text",
               }}
             >
-              Tuti Fruti - Ronda {currentRound}
+              Tuti Fruti - Tabla de Juego
             </h1>
 
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                gap: "var(--space-8)",
-                flexWrap: "wrap",
-              }}
-            >
+            {/* Información de la ronda actual */}
+            {isPlaying && (
               <div
                 style={{
-                  textAlign: "center",
-                  padding: "var(--space-4)",
-                  backgroundColor: "var(--primary-100)",
-                  borderRadius: "var(--radius-lg)",
-                  border: "2px solid var(--primary-300)",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  gap: "var(--space-8)",
+                  flexWrap: "wrap",
+                  marginBottom: "var(--space-4)",
                 }}
               >
-                <p
-                  style={{
-                    fontSize: "var(--font-size-sm)",
-                    color: "var(--primary-700)",
-                    marginBottom: "var(--space-1)",
-                  }}
-                >
-                  Letra sorteada
-                </p>
-                <span
-                  style={{
-                    fontSize: "var(--font-size-4xl)",
-                    fontWeight: "var(--font-weight-bold)",
-                    color: "var(--primary-600)",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {letter}
-                </span>
-              </div>
-
-              <div
-                style={{
-                  textAlign: "center",
-                  padding: "var(--space-4)",
-                  backgroundColor: timeLeft <= 10 ? "var(--error-100)" : "var(--warning-100)",
-                  borderRadius: "var(--radius-lg)",
-                  border: `2px solid ${timeLeft <= 10 ? "var(--error-300)" : "var(--warning-300)"}`,
-                }}
-              >
-                <p
-                  style={{
-                    fontSize: "var(--font-size-sm)",
-                    color: timeLeft <= 10 ? "var(--error-700)" : "var(--warning-700)",
-                    marginBottom: "var(--space-1)",
-                  }}
-                >
-                  Tiempo restante
-                </p>
-                <span
-                  style={{
-                    fontSize: "var(--font-size-2xl)",
-                    fontWeight: "var(--font-weight-bold)",
-                    color: timeLeft <= 10 ? "var(--error-600)" : "var(--warning-600)",
-                  }}
-                >
-                  {timeLeft}s
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Tabla de categorías */}
-          <div style={{ marginBottom: "var(--space-8)" }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                gap: "var(--space-4)",
-                marginBottom: "var(--space-6)",
-              }}
-            >
-              {CATEGORIES.map((cat) => (
                 <div
-                  key={cat.key}
                   style={{
+                    textAlign: "center",
                     padding: "var(--space-4)",
-                    backgroundColor: "var(--gray-50)",
+                    backgroundColor: "var(--primary-100)",
                     borderRadius: "var(--radius-lg)",
-                    border: "2px solid var(--gray-200)",
+                    border: "2px solid var(--primary-300)",
                   }}
                 >
-                  <label
+                  <p
                     style={{
-                      display: "block",
                       fontSize: "var(--font-size-sm)",
-                      fontWeight: "var(--font-weight-semibold)",
-                      color: "var(--gray-700)",
-                      marginBottom: "var(--space-2)",
+                      color: "var(--primary-700)",
+                      marginBottom: "var(--space-1)",
+                    }}
+                  >
+                    Ronda {currentRound} - Letra
+                  </p>
+                  <span
+                    style={{
+                      fontSize: "var(--font-size-4xl)",
+                      fontWeight: "var(--font-weight-bold)",
+                      color: "var(--primary-600)",
                       textTransform: "uppercase",
                     }}
                   >
-                    {cat.label}
-                  </label>
-                  <input
-                    type="text"
-                    value={inputs[cat.key] || ""}
-                    maxLength={20}
-                    disabled={finished}
-                    onChange={(e) => handleChange(cat.key, e.target.value.toUpperCase())}
-                    placeholder={`Con ${letter}`}
-                    style={{
-                      width: "100%",
-                      padding: "var(--space-3)",
-                      border: "2px solid var(--gray-200)",
-                      borderRadius: "var(--radius-md)",
-                      fontSize: "var(--font-size-base)",
-                      backgroundColor: finished ? "var(--gray-100)" : "white",
-                      color: finished ? "var(--gray-500)" : "var(--gray-900)",
-                      transition: "all var(--transition-normal)",
-                    }}
-                  />
+                    {currentLetter}
+                  </span>
                 </div>
-              ))}
+
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "var(--space-4)",
+                    backgroundColor: timeLeft <= 10 ? "var(--error-100)" : "var(--warning-100)",
+                    borderRadius: "var(--radius-lg)",
+                    border: `2px solid ${timeLeft <= 10 ? "var(--error-300)" : "var(--warning-300)"}`,
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: "var(--font-size-sm)",
+                      color: timeLeft <= 10 ? "var(--error-700)" : "var(--warning-700)",
+                      marginBottom: "var(--space-1)",
+                    }}
+                  >
+                    Tiempo restante
+                  </p>
+                  <span
+                    style={{
+                      fontSize: "var(--font-size-2xl)",
+                      fontWeight: "var(--font-weight-bold)",
+                      color: timeLeft <= 10 ? "var(--error-600)" : "var(--warning-600)",
+                    }}
+                  >
+                    {timeLeft}s
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Puntuaciones actuales */}
+            {Object.keys(currentScores).length > 0 && (
+              <div style={{ marginTop: "var(--space-4)" }}>
+                <h3
+                  style={{
+                    fontSize: "var(--font-size-lg)",
+                    fontWeight: "var(--font-weight-semibold)",
+                    color: "var(--gray-900)",
+                    marginBottom: "var(--space-3)",
+                  }}
+                >
+                  Puntuaciones Totales
+                </h3>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    gap: "var(--space-4)",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {Object.entries(currentScores)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([player, score], index) => (
+                      <div
+                        key={player}
+                        style={{
+                          padding: "var(--space-2) var(--space-4)",
+                          backgroundColor: player === username ? "var(--primary-100)" : "var(--gray-100)",
+                          borderRadius: "var(--radius-lg)",
+                          border: `2px solid ${player === username ? "var(--primary-300)" : "var(--gray-300)"}`,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "var(--space-2)",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "var(--font-size-sm)",
+                            fontWeight: "var(--font-weight-bold)",
+                            color: "var(--gray-500)",
+                          }}
+                        >
+                          #{index + 1}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "var(--font-size-sm)",
+                            fontWeight: "var(--font-weight-medium)",
+                            color: "var(--gray-900)",
+                          }}
+                        >
+                          {player}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "var(--font-size-sm)",
+                            fontWeight: "var(--font-weight-bold)",
+                            color: player === username ? "var(--primary-600)" : "var(--gray-600)",
+                          }}
+                        >
+                          {score} pts
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Tabla de juego */}
+          <div style={{ marginBottom: "var(--space-6)" }}>
+            <div style={{ overflowX: "auto", border: "2px solid var(--gray-200)", borderRadius: "var(--radius-lg)", backgroundColor: "white" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "800px" }}>
+                {/* Header de la tabla */}
+                <thead>
+                  <tr
+                    style={{
+                      backgroundColor: "var(--primary-50)",
+                      borderBottom: "2px solid var(--primary-200)",
+                    }}
+                  >
+                    <th
+                      style={{
+                        padding: "var(--space-4)",
+                        textAlign: "center",
+                        fontWeight: "var(--font-weight-bold)",
+                        color: "var(--primary-700)",
+                        fontSize: "var(--font-size-sm)",
+                        borderRight: "2px solid var(--primary-200)",
+                        minWidth: "80px",
+                      }}
+                    >
+                      Ronda
+                    </th>
+                    <th
+                      style={{
+                        padding: "var(--space-4)",
+                        textAlign: "center",
+                        fontWeight: "var(--font-weight-bold)",
+                        color: "var(--primary-700)",
+                        fontSize: "var(--font-size-sm)",
+                        borderRight: "2px solid var(--primary-200)",
+                        minWidth: "80px",
+                      }}
+                    >
+                      Letra
+                    </th>
+                    {CATEGORIES.map((cat) => (
+                      <th
+                        key={cat.key}
+                        style={{
+                          padding: "var(--space-4)",
+                          textAlign: "center",
+                          fontWeight: "var(--font-weight-bold)",
+                          color: "var(--primary-700)",
+                          fontSize: "var(--font-size-sm)",
+                          borderRight: "2px solid var(--primary-200)",
+                          minWidth: "120px",
+                        }}
+                      >
+                        {cat.label}
+                      </th>
+                    ))}
+                    <th
+                      style={{
+                        padding: "var(--space-4)",
+                        textAlign: "center",
+                        fontWeight: "var(--font-weight-bold)",
+                        color: "var(--primary-700)",
+                        fontSize: "var(--font-size-sm)",
+                        minWidth: "120px",
+                      }}
+                    >
+                      Ganador
+                    </th>
+                  </tr>
+                </thead>
+
+                {/* Cuerpo de la tabla */}
+                <tbody>
+                  {/* Filas de rondas completadas */}
+                  {rounds.map((round, index) => (
+                    <tr
+                      key={round.roundNumber}
+                      style={{
+                        borderBottom: "1px solid var(--gray-200)",
+                        backgroundColor: index % 2 === 0 ? "white" : "var(--gray-50)",
+                      }}
+                    >
+                      <td
+                        style={{
+                          padding: "var(--space-3)",
+                          textAlign: "center",
+                          fontWeight: "var(--font-weight-bold)",
+                          color: "var(--gray-700)",
+                          borderRight: "2px solid var(--gray-200)",
+                        }}
+                      >
+                        {round.roundNumber}
+                      </td>
+                      <td
+                        style={{
+                          padding: "var(--space-3)",
+                          textAlign: "center",
+                          fontWeight: "var(--font-weight-bold)",
+                          color: "var(--primary-600)",
+                          fontSize: "var(--font-size-lg)",
+                          borderRight: "2px solid var(--gray-200)",
+                        }}
+                      >
+                        {round.letter}
+                      </td>
+                      {CATEGORIES.map((cat) => (
+                        <td
+                          key={cat.key}
+                          style={{
+                            padding: "var(--space-3)",
+                            textAlign: "center",
+                            borderRight: "1px solid var(--gray-200)",
+                            fontSize: "var(--font-size-sm)",
+                            color: "var(--gray-700)",
+                            fontWeight: "var(--font-weight-medium)",
+                          }}
+                        >
+                          {round.answers[cat.key] || "-"}
+                        </td>
+                      ))}
+                      <td
+                        style={{
+                          padding: "var(--space-3)",
+                          textAlign: "center",
+                          fontWeight: "var(--font-weight-bold)",
+                          color: "var(--success-600)",
+                        }}
+                      >
+                        {round.finishedBy}
+                      </td>
+                    </tr>
+                  ))}
+
+                  {/* Fila de la ronda actual (si está jugando) */}
+                  {isPlaying && (
+                    <tr style={{ backgroundColor: "var(--success-50)", borderBottom: "2px solid var(--success-200)" }}>
+                      <td style={{ padding: "var(--space-3)", textAlign: "center", fontWeight: "var(--font-weight-bold)", color: "var(--success-700)", borderRight: "2px solid var(--success-200)" }}>{currentRound}</td>
+                      <td style={{ padding: "var(--space-3)", textAlign: "center", fontWeight: "var(--font-weight-bold)", color: "var(--success-600)", fontSize: "var(--font-size-lg)", borderRight: "2px solid var(--success-200)" }}>{currentLetter}</td>
+                      {CATEGORIES.map((cat) => (
+                        <td key={cat.key} style={{ padding: "var(--space-3)", textAlign: "center", borderRight: "1px solid var(--success-200)" }}>
+                          <input
+                            type="text"
+                            value={currentInputs[cat.key] || ""}
+                            maxLength={20}
+                            onChange={(e) => handleChange(cat.key, e.target.value.toUpperCase())}
+                            placeholder={`Con ${currentLetter}`}
+                            style={{ width: "100%", padding: "var(--space-2)", border: "2px solid var(--success-300)", borderRadius: "var(--radius-sm)", fontSize: "var(--font-size-sm)", backgroundColor: "white", color: "var(--gray-900)", textAlign: "center" }}
+                          />
+                        </td>
+                      ))}
+                      <td style={{ padding: "var(--space-3)", textAlign: "center", fontWeight: "var(--font-weight-bold)", color: "var(--success-600)" }}>En juego...</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
 
-            {/* Botón de finalizar */}
-            {!finished && (
-              <div style={{ textAlign: "center" }}>
+            {/* Botón de finalizar (solo cuando está jugando) */}
+            {isPlaying && (
+              <div style={{ textAlign: "center", marginTop: "var(--space-6)" }}>
                 <Button onClick={handleFinish} size="lg" variant="success" className="bounce-in">
                   ¡Tuti Fruti!
                 </Button>
               </div>
             )}
+
+            {/* Botón siguiente ronda (solo para host cuando no está jugando) */}
+            {isHost && !isPlaying && rounds.length > 0 && (
+              <div style={{ textAlign: "center", marginTop: "var(--space-6)" }}>
+                <Button onClick={handleNextRound} size="lg" variant="primary">
+                  Siguiente Ronda
+                </Button>
+              </div>
+            )}
           </div>
 
-          {/* Resultados */}
-          {finished && (
-            <div
+          {/* Botón para regresar al lobby */}
+          <div
+            style={{
+              marginTop: "var(--space-4)",
+              textAlign: "center",
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleBackToLobby}
               style={{
-                padding: "var(--space-6)",
-                backgroundColor: "var(--gray-50)",
-                borderRadius: "var(--radius-lg)",
-                border: "1px solid var(--gray-200)",
+                fontSize: "var(--font-size-sm)",
+                color: "var(--gray-500)",
+                textDecoration: "underline",
+                cursor: "pointer",
+                background: "none",
+                border: "none",
+                padding: 0,
               }}
             >
-              <h3
-                style={{
-                  fontSize: "var(--font-size-xl)",
-                  fontWeight: "var(--font-weight-bold)",
-                  color: "var(--gray-900)",
-                  marginBottom: "var(--space-4)",
-                  textAlign: "center",
-                }}
-              >
-                ¡Ronda {currentRound} terminada!
-              </h3>
-
-              {finishedBy && (
-                <div
-                  style={{
-                    textAlign: "center",
-                    marginBottom: "var(--space-4)",
-                    padding: "var(--space-4)",
-                    backgroundColor: finishedBy === username ? "var(--success-100)" : "var(--primary-100)",
-                    borderRadius: "var(--radius-lg)",
-                    border: `1px solid ${finishedBy === username ? "var(--success-300)" : "var(--primary-300)"}`,
-                  }}
-                >
-                  <p
-                    style={{
-                      color: finishedBy === username ? "var(--success-700)" : "var(--primary-700)",
-                      fontWeight: "var(--font-weight-medium)",
-                      fontSize: "var(--font-size-lg)",
-                    }}
-                  >
-                    {finishedBy === username ? "¡Terminaste primero! Los demás no pueden seguir escribiendo." : `Terminada por: ${finishedBy}`}
-                  </p>
-                </div>
-              )}
-
-              {/* Puntuaciones */}
-              {Object.keys(scores).length > 0 && (
-                <div style={{ marginBottom: "var(--space-6)" }}>
-                  <h4
-                    style={{
-                      fontSize: "var(--font-size-lg)",
-                      fontWeight: "var(--font-weight-semibold)",
-                      color: "var(--gray-900)",
-                      marginBottom: "var(--space-3)",
-                      textAlign: "center",
-                    }}
-                  >
-                    Puntuaciones
-                  </h4>
-
-                  {/* Mensaje especial para el ganador */}
-                  {finishedBy && (
-                    <div
-                      style={{
-                        textAlign: "center",
-                        marginBottom: "var(--space-4)",
-                        padding: "var(--space-3)",
-                        backgroundColor: "var(--success-100)",
-                        borderRadius: "var(--radius-lg)",
-                        border: "1px solid var(--success-300)",
-                      }}
-                    >
-                      <p
-                        style={{
-                          color: "var(--success-700)",
-                          fontWeight: "var(--font-weight-medium)",
-                          fontSize: "var(--font-size-base)",
-                        }}
-                      >
-                        🏆 <strong>{finishedBy}</strong> ganó esta ronda y recibió <strong>+10 puntos</strong>!
-                      </p>
-                    </div>
-                  )}
-
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "var(--space-2)",
-                    }}
-                  >
-                    {Object.entries(scores)
-                      .sort(([, a], [, b]) => b - a)
-                      .map(([player, score], index) => (
-                        <div
-                          key={player}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            padding: "var(--space-3)",
-                            backgroundColor: player === username ? "var(--primary-100)" : player === finishedBy ? "var(--success-100)" : "white",
-                            borderRadius: "var(--radius-md)",
-                            border: `1px solid ${player === username ? "var(--primary-300)" : player === finishedBy ? "var(--success-300)" : "var(--gray-200)"}`,
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "var(--space-2)",
-                            }}
-                          >
-                            <span
-                              style={{
-                                fontSize: "var(--font-size-sm)",
-                                fontWeight: "var(--font-weight-bold)",
-                                color: "var(--gray-500)",
-                                minWidth: "2rem",
-                              }}
-                            >
-                              #{index + 1}
-                            </span>
-                            <span
-                              style={{
-                                fontSize: "var(--font-size-base)",
-                                fontWeight: "var(--font-weight-medium)",
-                                color: "var(--gray-900)",
-                              }}
-                            >
-                              {player}
-                            </span>
-                            {player === username && (
-                              <span
-                                style={{
-                                  fontSize: "var(--font-size-xs)",
-                                  color: "var(--primary-600)",
-                                  fontWeight: "var(--font-weight-medium)",
-                                }}
-                              >
-                                (tú)
-                              </span>
-                            )}
-                            {player === finishedBy && (
-                              <span
-                                style={{
-                                  fontSize: "var(--font-size-xs)",
-                                  color: "var(--success-600)",
-                                  fontWeight: "var(--font-weight-medium)",
-                                }}
-                              >
-                                🏆 ganador
-                              </span>
-                            )}
-                          </div>
-                          <span
-                            style={{
-                              fontSize: "var(--font-size-lg)",
-                              fontWeight: "var(--font-weight-bold)",
-                              color: player === finishedBy ? "var(--success-600)" : "var(--primary-600)",
-                            }}
-                          >
-                            {score} pts
-                          </span>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Botón siguiente ronda (solo para host) */}
-              {isHost && (
-                <div style={{ textAlign: "center" }}>
-                  <Button onClick={handleNextRound} size="lg" variant="primary">
-                    Siguiente Ronda
-                  </Button>
-                </div>
-              )}
-
-              {/* Botón para regresar al lobby */}
-              <div
-                style={{
-                  marginTop: "var(--space-4)",
-                  textAlign: "center",
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={handleBackToLobby}
-                  style={{
-                    fontSize: "var(--font-size-sm)",
-                    color: "var(--gray-500)",
-                    textDecoration: "underline",
-                    cursor: "pointer",
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                  }}
-                >
-                  Volver al lobby
-                </button>
-              </div>
-            </div>
-          )}
+              Volver al lobby
+            </button>
+          </div>
         </Card>
       </div>
     </div>
