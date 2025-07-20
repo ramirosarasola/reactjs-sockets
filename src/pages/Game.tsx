@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useSocket } from "../hooks/useSocket";
+import { Button, Card } from "../components/ui";
 
 interface Category {
   key: string;
@@ -26,6 +27,9 @@ interface GameProps {
   gameCode: string;
   isHost: boolean; // le pasamos si es host
   gameData: GameStartedData;
+  game?: any; // Para compatibilidad con el nuevo flujo
+  user?: any; // Para compatibilidad con el nuevo flujo
+  onBackToLobby?: () => void;
 }
 
 export const Game: React.FC<GameProps> = ({
@@ -33,31 +37,42 @@ export const Game: React.FC<GameProps> = ({
   gameCode, // Se usará para enviar respuestas
   isHost, // Se usará para funcionalidades del host
   gameData,
+  onBackToLobby,
 }) => {
-  const socketRef = useSocket();
+  const { socket, emit, on, off } = useSocket();
   const [letter, setLetter] = useState<string>(gameData.letter || "");
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [timeLeft, setTimeLeft] = useState<number>(60);
   const [finished, setFinished] = useState(false);
-  const [started, setStarted] = useState(!!gameData.letter);
+  const [started, setStarted] = useState(
+    !!gameData.letter || gameData.autoStarted
+  );
   const [finishedBy, setFinishedBy] = useState<string>("");
   const [scores, setScores] = useState<Record<string, number>>({});
-  const [currentRound, setCurrentRound] = useState<number>(1);
+  const [currentRound, setCurrentRound] = useState<number>(
+    gameData.roundNumber || 1
+  );
 
   useEffect(() => {
-    if (!socketRef.current) {
+    if (!socket) {
       console.log("Socket no disponible en Game");
       return;
     }
 
-    const socket = socketRef.current;
+    console.log("🎮 Game.tsx - Estado inicial:");
+    console.log("   Letter:", letter);
+    console.log("   Started:", started);
+    console.log("   GameData:", gameData);
+    console.log("   IsHost:", isHost);
+    console.log("   CurrentRound:", currentRound);
+
     console.log("Socket conectado en Game, gameCode:", gameCode);
 
     // Asegurar que estamos en la sala correcta
-    socket.emit("join_game", { gameCode, username });
+    emit("join_game", { gameCode, username });
 
     // Escucha el evento game_started con la letra sorteada
-    socket.on("game_started", (data: GameStartedData) => {
+    on("game_started", (data: GameStartedData) => {
       console.log("Juego iniciado desde Game:", data);
       setLetter(data.letter || "");
       setStarted(true);
@@ -73,7 +88,7 @@ export const Game: React.FC<GameProps> = ({
     });
 
     // Escucha cuando alguien termina la ronda
-    socket.on(
+    on(
       "round_finished",
       (data: {
         finishedBy: string;
@@ -90,10 +105,10 @@ export const Game: React.FC<GameProps> = ({
     );
 
     return () => {
-      socket.off("game_started");
-      socket.off("round_finished");
+      off("game_started");
+      off("round_finished");
     };
-  }, [gameCode, socketRef, username]);
+  }, [socket, gameCode, username, emit, on, off]);
 
   useEffect(() => {
     if (!started) return;
@@ -123,7 +138,7 @@ export const Game: React.FC<GameProps> = ({
     setFinishedBy(username); // Marcar que terminé yo
 
     // Enviar las respuestas al servidor
-    socketRef.current?.emit("tuti_fruti_finished", {
+    emit("tuti_fruti_finished", {
       gameCode,
       username,
       answers: inputs,
@@ -136,100 +151,477 @@ export const Game: React.FC<GameProps> = ({
   const handleNextRound = () => {
     console.log("Iniciando siguiente ronda desde Game");
     console.log("Datos enviados:", { gameCode, username });
-    socketRef.current?.emit("start_next_round", { gameCode, username });
+    emit("start_next_round", { gameCode, username });
+
+    // Navegar de vuelta al lobby para la siguiente ronda
+    if (onBackToLobby) {
+      onBackToLobby();
+    }
+  };
+
+  const handleBackToLobby = () => {
+    if (onBackToLobby) {
+      onBackToLobby();
+    }
   };
 
   if (!started) {
     return (
-      <div style={{ maxWidth: 600, margin: "0 auto", padding: 24 }}>
-        Esperando a que inicie la ronda... {isHost ? "(Eres el host)" : ""}
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{
+          background:
+            "linear-gradient(135deg, var(--primary-50), var(--secondary-50))",
+          padding: "var(--space-4)",
+        }}
+      >
+        <Card className="fade-in">
+          <div className="text-center" style={{ padding: "var(--space-8)" }}>
+            <h2
+              style={{
+                fontSize: "var(--font-size-2xl)",
+                fontWeight: "var(--font-weight-bold)",
+                color: "var(--gray-900)",
+                marginBottom: "var(--space-4)",
+              }}
+            >
+              Esperando inicio de ronda...
+            </h2>
+            <p
+              style={{
+                color: "var(--gray-600)",
+                fontSize: "var(--font-size-lg)",
+              }}
+            >
+              {isHost
+                ? "Eres el host - puedes iniciar cuando estés listo"
+                : "El host iniciará la ronda pronto"}
+            </p>
+          </div>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 600, margin: "0 auto", padding: 24 }}>
-      <h2>Tuti Fruti - Ronda {currentRound}</h2>
-      <p>
-        <b>Letra sorteada:</b> <span style={{ fontSize: 24 }}>{letter}</span>
-      </p>
-      <p>
-        <b>Tiempo restante:</b> {timeLeft} seg
-      </p>
-      <table
-        border={1}
-        cellPadding={8}
-        style={{ width: "100%", marginBottom: 20 }}
-      >
-        <thead>
-          <tr>
-            {CATEGORIES.map((cat) => (
-              <th key={cat.key}>{cat.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            {CATEGORIES.map((cat) => (
-              <td key={cat.key}>
-                <input
-                  type="text"
-                  value={inputs[cat.key] || ""}
-                  maxLength={20}
-                  disabled={finished}
-                  onChange={(e) =>
-                    handleChange(cat.key, e.target.value.toUpperCase())
-                  }
-                  style={{ width: "95%" }}
-                  placeholder={`Con ${letter}`}
-                />
-              </td>
-            ))}
-          </tr>
-        </tbody>
-      </table>
-      {!finished ? (
-        <button onClick={handleFinish}>¡Tuti Fruti!</button>
-      ) : (
-        <div>
-          <p>¡Ronda {currentRound} terminada!</p>
-          {finishedBy && (
-            <p>
-              {finishedBy === username
-                ? "¡Terminaste primero! Los demás no pueden seguir escribiendo."
-                : `Terminada por: ${finishedBy}`}
-            </p>
-          )}
-          {Object.keys(scores).length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <h3>Puntuaciones:</h3>
-              {Object.entries(scores)
-                .sort(([, a], [, b]) => b - a)
-                .map(([player, score]) => (
-                  <p key={player}>
-                    {player}: {score} puntos {player === username && "(vos)"}
-                  </p>
-                ))}
-            </div>
-          )}
-          {isHost && (
-            <button
-              onClick={handleNextRound}
+    <div
+      className="min-h-screen"
+      style={{
+        background:
+          "linear-gradient(135deg, var(--primary-50), var(--secondary-50))",
+        padding: "var(--space-4)",
+      }}
+    >
+      <div style={{ maxWidth: "800px", margin: "0 auto" }}>
+        <Card className="fade-in">
+          {/* Header del juego */}
+          <div
+            style={{
+              textAlign: "center",
+              marginBottom: "var(--space-8)",
+              padding: "var(--space-6)",
+              borderBottom: "1px solid var(--gray-200)",
+            }}
+          >
+            <h1
               style={{
-                marginTop: 16,
-                backgroundColor: "#3498db",
-                color: "white",
-                padding: "12px 24px",
-                border: "none",
-                borderRadius: "8px",
-                cursor: "pointer",
+                fontSize: "var(--font-size-3xl)",
+                fontWeight: "var(--font-weight-bold)",
+                color: "var(--gray-900)",
+                marginBottom: "var(--space-4)",
+                background:
+                  "linear-gradient(135deg, var(--primary-600), var(--secondary-600))",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
               }}
             >
-              Siguiente Ronda
-            </button>
+              Tuti Fruti - Ronda {currentRound}
+            </h1>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                gap: "var(--space-8)",
+                flexWrap: "wrap",
+              }}
+            >
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "var(--space-4)",
+                  backgroundColor: "var(--primary-100)",
+                  borderRadius: "var(--radius-lg)",
+                  border: "2px solid var(--primary-300)",
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: "var(--font-size-sm)",
+                    color: "var(--primary-700)",
+                    marginBottom: "var(--space-1)",
+                  }}
+                >
+                  Letra sorteada
+                </p>
+                <span
+                  style={{
+                    fontSize: "var(--font-size-4xl)",
+                    fontWeight: "var(--font-weight-bold)",
+                    color: "var(--primary-600)",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {letter}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "var(--space-4)",
+                  backgroundColor:
+                    timeLeft <= 10 ? "var(--error-100)" : "var(--warning-100)",
+                  borderRadius: "var(--radius-lg)",
+                  border: `2px solid ${
+                    timeLeft <= 10 ? "var(--error-300)" : "var(--warning-300)"
+                  }`,
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: "var(--font-size-sm)",
+                    color:
+                      timeLeft <= 10
+                        ? "var(--error-700)"
+                        : "var(--warning-700)",
+                    marginBottom: "var(--space-1)",
+                  }}
+                >
+                  Tiempo restante
+                </p>
+                <span
+                  style={{
+                    fontSize: "var(--font-size-2xl)",
+                    fontWeight: "var(--font-weight-bold)",
+                    color:
+                      timeLeft <= 10
+                        ? "var(--error-600)"
+                        : "var(--warning-600)",
+                  }}
+                >
+                  {timeLeft}s
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Tabla de categorías */}
+          <div style={{ marginBottom: "var(--space-8)" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                gap: "var(--space-4)",
+                marginBottom: "var(--space-6)",
+              }}
+            >
+              {CATEGORIES.map((cat) => (
+                <div
+                  key={cat.key}
+                  style={{
+                    padding: "var(--space-4)",
+                    backgroundColor: "var(--gray-50)",
+                    borderRadius: "var(--radius-lg)",
+                    border: "2px solid var(--gray-200)",
+                  }}
+                >
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "var(--font-size-sm)",
+                      fontWeight: "var(--font-weight-semibold)",
+                      color: "var(--gray-700)",
+                      marginBottom: "var(--space-2)",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    {cat.label}
+                  </label>
+                  <input
+                    type="text"
+                    value={inputs[cat.key] || ""}
+                    maxLength={20}
+                    disabled={finished}
+                    onChange={(e) =>
+                      handleChange(cat.key, e.target.value.toUpperCase())
+                    }
+                    placeholder={`Con ${letter}`}
+                    style={{
+                      width: "100%",
+                      padding: "var(--space-3)",
+                      border: "2px solid var(--gray-200)",
+                      borderRadius: "var(--radius-md)",
+                      fontSize: "var(--font-size-base)",
+                      backgroundColor: finished ? "var(--gray-100)" : "white",
+                      color: finished ? "var(--gray-500)" : "var(--gray-900)",
+                      transition: "all var(--transition-normal)",
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Botón de finalizar */}
+            {!finished && (
+              <div style={{ textAlign: "center" }}>
+                <Button
+                  onClick={handleFinish}
+                  size="lg"
+                  variant="success"
+                  className="bounce-in"
+                >
+                  ¡Tuti Fruti!
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Resultados */}
+          {finished && (
+            <div
+              style={{
+                padding: "var(--space-6)",
+                backgroundColor: "var(--gray-50)",
+                borderRadius: "var(--radius-lg)",
+                border: "1px solid var(--gray-200)",
+              }}
+            >
+              <h3
+                style={{
+                  fontSize: "var(--font-size-xl)",
+                  fontWeight: "var(--font-weight-bold)",
+                  color: "var(--gray-900)",
+                  marginBottom: "var(--space-4)",
+                  textAlign: "center",
+                }}
+              >
+                ¡Ronda {currentRound} terminada!
+              </h3>
+
+              {finishedBy && (
+                <div
+                  style={{
+                    textAlign: "center",
+                    marginBottom: "var(--space-4)",
+                    padding: "var(--space-4)",
+                    backgroundColor:
+                      finishedBy === username
+                        ? "var(--success-100)"
+                        : "var(--primary-100)",
+                    borderRadius: "var(--radius-lg)",
+                    border: `1px solid ${
+                      finishedBy === username
+                        ? "var(--success-300)"
+                        : "var(--primary-300)"
+                    }`,
+                  }}
+                >
+                  <p
+                    style={{
+                      color:
+                        finishedBy === username
+                          ? "var(--success-700)"
+                          : "var(--primary-700)",
+                      fontWeight: "var(--font-weight-medium)",
+                      fontSize: "var(--font-size-lg)",
+                    }}
+                  >
+                    {finishedBy === username
+                      ? "¡Terminaste primero! Los demás no pueden seguir escribiendo."
+                      : `Terminada por: ${finishedBy}`}
+                  </p>
+                </div>
+              )}
+
+              {/* Puntuaciones */}
+              {Object.keys(scores).length > 0 && (
+                <div style={{ marginBottom: "var(--space-6)" }}>
+                  <h4
+                    style={{
+                      fontSize: "var(--font-size-lg)",
+                      fontWeight: "var(--font-weight-semibold)",
+                      color: "var(--gray-900)",
+                      marginBottom: "var(--space-3)",
+                      textAlign: "center",
+                    }}
+                  >
+                    Puntuaciones
+                  </h4>
+
+                  {/* Mensaje especial para el ganador */}
+                  {finishedBy && (
+                    <div
+                      style={{
+                        textAlign: "center",
+                        marginBottom: "var(--space-4)",
+                        padding: "var(--space-3)",
+                        backgroundColor: "var(--success-100)",
+                        borderRadius: "var(--radius-lg)",
+                        border: "1px solid var(--success-300)",
+                      }}
+                    >
+                      <p
+                        style={{
+                          color: "var(--success-700)",
+                          fontWeight: "var(--font-weight-medium)",
+                          fontSize: "var(--font-size-base)",
+                        }}
+                      >
+                        🏆 <strong>{finishedBy}</strong> ganó esta ronda y
+                        recibió <strong>+10 puntos</strong>!
+                      </p>
+                    </div>
+                  )}
+
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "var(--space-2)",
+                    }}
+                  >
+                    {Object.entries(scores)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([player, score], index) => (
+                        <div
+                          key={player}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "var(--space-3)",
+                            backgroundColor:
+                              player === username
+                                ? "var(--primary-100)"
+                                : player === finishedBy
+                                ? "var(--success-100)"
+                                : "white",
+                            borderRadius: "var(--radius-md)",
+                            border: `1px solid ${
+                              player === username
+                                ? "var(--primary-300)"
+                                : player === finishedBy
+                                ? "var(--success-300)"
+                                : "var(--gray-200)"
+                            }`,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "var(--space-2)",
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: "var(--font-size-sm)",
+                                fontWeight: "var(--font-weight-bold)",
+                                color: "var(--gray-500)",
+                                minWidth: "2rem",
+                              }}
+                            >
+                              #{index + 1}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: "var(--font-size-base)",
+                                fontWeight: "var(--font-weight-medium)",
+                                color: "var(--gray-900)",
+                              }}
+                            >
+                              {player}
+                            </span>
+                            {player === username && (
+                              <span
+                                style={{
+                                  fontSize: "var(--font-size-xs)",
+                                  color: "var(--primary-600)",
+                                  fontWeight: "var(--font-weight-medium)",
+                                }}
+                              >
+                                (tú)
+                              </span>
+                            )}
+                            {player === finishedBy && (
+                              <span
+                                style={{
+                                  fontSize: "var(--font-size-xs)",
+                                  color: "var(--success-600)",
+                                  fontWeight: "var(--font-weight-medium)",
+                                }}
+                              >
+                                🏆 ganador
+                              </span>
+                            )}
+                          </div>
+                          <span
+                            style={{
+                              fontSize: "var(--font-size-lg)",
+                              fontWeight: "var(--font-weight-bold)",
+                              color:
+                                player === finishedBy
+                                  ? "var(--success-600)"
+                                  : "var(--primary-600)",
+                            }}
+                          >
+                            {score} pts
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Botón siguiente ronda (solo para host) */}
+              {isHost && (
+                <div style={{ textAlign: "center" }}>
+                  <Button onClick={handleNextRound} size="lg" variant="primary">
+                    Siguiente Ronda
+                  </Button>
+                </div>
+              )}
+
+              {/* Botón para regresar al lobby */}
+              <div
+                style={{
+                  marginTop: "var(--space-4)",
+                  textAlign: "center",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={handleBackToLobby}
+                  style={{
+                    fontSize: "var(--font-size-sm)",
+                    color: "var(--gray-500)",
+                    textDecoration: "underline",
+                    cursor: "pointer",
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                  }}
+                >
+                  Volver al lobby
+                </button>
+              </div>
+            </div>
           )}
-        </div>
-      )}
+        </Card>
+      </div>
     </div>
   );
 };

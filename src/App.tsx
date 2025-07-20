@@ -1,107 +1,115 @@
-import { useState } from "react";
-import { Home } from "./pages/Home";
+import { useState, useEffect } from "react";
+import { Auth } from "./pages/Auth";
+import { GameManager } from "./pages/GameManager";
 import { Lobby } from "./pages/Lobby";
+import { Game } from "./pages/Game";
+import { logBackendStatus } from "./utils/healthCheck";
+import type { User, Game as GameType } from "./types";
+
+type AppStep = "auth" | "gameManager" | "lobby" | "game";
 
 export default function App() {
-  const [step, setStep] = useState<"home" | "lobby">("home");
-  const [username, setUsername] = useState("");
-  const [gameCode, setGameCode] = useState("");
+  const [currentStep, setCurrentStep] = useState<AppStep>("auth");
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentGame, setCurrentGame] = useState<GameType | null>(null);
+  const [gameData, setGameData] = useState<any>({});
+  const [isHost, setIsHost] = useState<boolean>(false);
 
-  // Función para buscar o crear usuario
-  const findOrCreateUser = async (username: string) => {
-    try {
-      // Primero intentamos buscar el usuario existente
-      const searchResponse = await fetch(
-        `http://localhost:5001/users/search?username=${encodeURIComponent(
-          username
-        )}`
+  // Verificar salud del backend al cargar la aplicación
+  useEffect(() => {
+    logBackendStatus();
+  }, []);
+
+  // Manejar autenticación exitosa
+  const handleAuthSuccess = (user: User) => {
+    console.log("Usuario autenticado:", user);
+    setCurrentUser(user);
+    setCurrentStep("gameManager");
+  };
+
+  // Manejar logout
+  const handleLogout = () => {
+    console.log("Usuario cerrando sesión");
+    setCurrentUser(null);
+    setCurrentGame(null);
+    setCurrentStep("auth");
+  };
+
+  // Manejar unión a juego
+  const handleJoinGame = (game: GameType) => {
+    console.log("Uniéndose al juego:", game);
+    console.log("Tipo de game en handleJoinGame:", typeof game);
+    console.log(
+      "Estructura de game en handleJoinGame:",
+      JSON.stringify(game, null, 2)
+    );
+
+    if (game && game.id && game.code) {
+      setCurrentGame(game);
+      setCurrentStep("lobby");
+    } else {
+      console.error("Juego inválido en handleJoinGame:", game);
+    }
+  };
+
+  // Manejar inicio de juego
+  const handleGameStart = (data?: any) => {
+    console.log("Iniciando juego con datos:", data);
+    if (data) {
+      setGameData(data);
+      // Determinar si es host basado en el primer jugador del lobby
+      // Por ahora lo determinamos por el username del usuario actual
+      setIsHost(currentUser?.username === data.hostUsername || false);
+    }
+    setCurrentStep("game");
+  };
+
+  // Manejar regreso al lobby
+  const handleBackToLobby = () => {
+    console.log("Regresando al lobby");
+    // Limpiar datos del juego para la siguiente ronda
+    setGameData({});
+    setIsHost(false);
+    setCurrentStep("lobby");
+  };
+
+  // Renderizar componente según el paso actual
+  switch (currentStep) {
+    case "auth":
+      return <Auth onAuthSuccess={handleAuthSuccess} />;
+
+    case "gameManager":
+      return (
+        <GameManager
+          user={currentUser!}
+          onJoinGame={handleJoinGame}
+          onLogout={handleLogout}
+        />
       );
 
-      if (searchResponse.ok) {
-        const existingUser = await searchResponse.json();
-        if (existingUser) {
-          console.log(`Usuario existente encontrado: ${username}`);
-          return { user: existingUser, isNew: false };
-        }
-      }
+    case "lobby":
+      return (
+        <Lobby
+          username={currentUser!.username}
+          gameCode={currentGame!.code}
+          currentUser={currentUser!}
+          onGameStart={handleGameStart}
+          onBackToGameManager={() => setCurrentStep("gameManager")}
+        />
+      );
 
-      // Si no existe, lo creamos
-      const createResponse = await fetch("http://localhost:5001/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username }),
-      });
+    case "game":
+      return (
+        <Game
+          username={currentUser!.username}
+          gameCode={currentGame!.code}
+          isHost={isHost}
+          gameData={gameData}
+          onBackToLobby={handleBackToLobby}
+        />
+      );
 
-      if (createResponse.ok) {
-        const newUser = await createResponse.json();
-        console.log(`Nuevo usuario creado: ${username}`);
-        return { user: newUser, isNew: true };
-      } else {
-        throw new Error("No se pudo crear el usuario");
-      }
-    } catch (error) {
-      console.error("Error:", error);
-      throw error;
-    }
-  };
-
-  // Simula la creación/unión a partida (falta llamada al backend real)
-  const handleJoin = async (user: string, code: string, isNewGame: boolean) => {
-    setUsername(user);
-
-    try {
-      // 1. Buscar o crear usuario
-      const userResult = await findOrCreateUser(user);
-
-      if (!userResult.user.id) {
-        alert("No se pudo obtener el usuario");
-        return;
-      }
-
-      // Mostrar mensaje si es usuario existente
-      if (!userResult.isNew) {
-        console.log(`Bienvenido de vuelta, ${user}!`);
-      }
-
-      // 2. Crear o unirse a partida usando el userId correcto
-      if (isNewGame) {
-        const gameResponse = await fetch("http://localhost:5001/games", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: userResult.user.id }),
-        });
-
-        if (gameResponse.ok) {
-          const gameRes = await gameResponse.json();
-          setGameCode(gameRes.code);
-          setStep("lobby");
-        } else {
-          alert("No se pudo crear la partida");
-        }
-      } else {
-        const gameResponse = await fetch("http://localhost:5001/games/join", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: userResult.user.id, code }),
-        });
-
-        if (gameResponse.ok) {
-          const gameRes = await gameResponse.json();
-          setGameCode(gameRes.code);
-          setStep("lobby");
-        } else {
-          alert("No se pudo unirse a la partida");
-        }
-      }
-    } catch (error) {
-      console.error("Error:", error);
-      alert("Error al procesar la solicitud");
-    }
-  };
-
-  if (step === "lobby") {
-    return <Lobby username={username} gameCode={gameCode} />;
+    default:
+      return <Auth onAuthSuccess={handleAuthSuccess} />;
   }
-
-  return <Home onJoin={handleJoin} />;
 }

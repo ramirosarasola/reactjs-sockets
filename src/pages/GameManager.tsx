@@ -2,42 +2,55 @@ import React, { useState } from "react";
 import { Button, Card, Input } from "../components/ui";
 import { useApi } from "../hooks/useApi";
 import { apiService } from "../services/api";
-import type { User } from "../types";
+import type { User, Game } from "../types";
 
-interface HomeProps {
-  onJoin: (user: string, code: string, isNewGame: boolean) => Promise<void>;
+interface GameManagerProps {
+  user: User;
+  onJoinGame: (game: Game) => void;
+  onLogout: () => void;
 }
 
-export const Home: React.FC<HomeProps> = ({ onJoin }) => {
-  const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
+export const GameManager: React.FC<GameManagerProps> = ({
+  user,
+  onJoinGame,
+  onLogout,
+}) => {
   const [gameCode, setGameCode] = useState("");
   const [isNewGame, setIsNewGame] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const { execute: createUser, loading: creatingUser } = useApi<User>({
-    onSuccess: (user) => {
-      console.log("Usuario creado:", user);
+  const { execute: createGame, loading: creatingGame } = useApi<Game>({
+    onSuccess: (game) => {
+      console.log("Juego creado exitosamente:", game);
+      onJoinGame(game);
     },
     onError: (error) => {
+      console.error("Error al crear juego:", error);
+      setErrors({ general: error });
+    },
+  });
+
+  const { execute: joinGame, loading: joiningGame } = useApi<Game>({
+    onSuccess: (game) => {
+      console.log("Juego unido exitosamente:", game);
+      console.log("Tipo de game:", typeof game);
+      console.log("Estructura de game:", JSON.stringify(game, null, 2));
+
+      if (game && game.id && game.code) {
+        onJoinGame(game);
+      } else {
+        console.error("Juego inválido recibido:", game);
+        setErrors({ general: "Respuesta inválida del servidor" });
+      }
+    },
+    onError: (error) => {
+      console.error("Error al unirse al juego:", error);
       setErrors({ general: error });
     },
   });
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
-
-    if (!username.trim()) {
-      newErrors.username = "El nombre de usuario es requerido";
-    } else if (username.length < 3) {
-      newErrors.username = "El nombre debe tener al menos 3 caracteres";
-    }
-
-    if (!email.trim()) {
-      newErrors.email = "El email es requerido";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      newErrors.email = "El email no es válido";
-    }
 
     if (!isNewGame && !gameCode.trim()) {
       newErrors.gameCode = "El código del juego es requerido";
@@ -50,23 +63,32 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    console.log("Iniciando handleSubmit:", {
+      isNewGame,
+      gameCode,
+      userId: user.id,
+    });
+
     if (!validateForm()) {
+      console.log("Validación falló");
       return;
     }
 
     try {
-      // Crear usuario primero
-      await createUser(() =>
-        apiService.createUser(username.trim(), email.trim())
-      );
-
-      // Unirse al juego
-      await onJoin(username.trim(), gameCode.trim(), isNewGame);
+      if (isNewGame) {
+        console.log("Creando nuevo juego...");
+        await createGame(() => apiService.createGame(user.id));
+      } else {
+        console.log("Uniéndose al juego:", gameCode.trim());
+        await joinGame(() => apiService.joinGame(user.id, gameCode.trim()));
+      }
     } catch (error) {
       console.error("Error al procesar la solicitud:", error);
       setErrors({ general: "Error al procesar la solicitud" });
     }
   };
+
+  const loading = creatingGame || joiningGame;
 
   return (
     <div
@@ -104,34 +126,11 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
                 fontSize: "var(--font-size-lg)",
               }}
             >
-              ¡El clásico juego de palabras!
+              ¡Hola, {user.username}!
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Usuario */}
-            <Input
-              name="username"
-              label="Nombre de usuario"
-              placeholder="Ingresa tu nombre"
-              value={username}
-              onChange={setUsername}
-              error={errors.username}
-              required
-            />
-
-            {/* Email */}
-            <Input
-              name="email"
-              label="Email"
-              type="email"
-              placeholder="tu@email.com"
-              value={email}
-              onChange={setEmail}
-              error={errors.email}
-              required
-            />
-
             {/* Tipo de juego */}
             <div className="space-y-3">
               <label
@@ -142,7 +141,7 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
                   color: "var(--gray-700)",
                 }}
               >
-                Tipo de juego
+                ¿Qué quieres hacer?
               </label>
               <div
                 style={{
@@ -165,7 +164,7 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
                     style={{ marginRight: "var(--space-2)" }}
                   />
                   <span style={{ fontSize: "var(--font-size-sm)" }}>
-                    Nuevo juego
+                    Crear nuevo juego
                   </span>
                 </label>
                 <label
@@ -226,13 +225,92 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
             {/* Botón de envío */}
             <Button
               type="submit"
-              loading={creatingUser}
-              disabled={creatingUser}
+              loading={loading}
+              disabled={loading}
               className="w-full"
               size="lg"
             >
               {isNewGame ? "Crear juego" : "Unirse al juego"}
             </Button>
+
+            {/* Botón de prueba para debug */}
+            {!isNewGame && gameCode.trim() && (
+              <Button
+                type="button"
+                onClick={async () => {
+                  console.log("Probando endpoint de join...");
+                  try {
+                    const response = await apiService.joinGame(
+                      user.id,
+                      gameCode.trim()
+                    );
+                    console.log("Respuesta del endpoint:", response);
+                    if (response.data) {
+                      console.log("Juego encontrado:", response.data);
+                      onJoinGame(response.data);
+                    } else {
+                      console.error("Error:", response.error);
+                      setErrors({
+                        general: response.error || "Error desconocido",
+                      });
+                    }
+                  } catch (error) {
+                    console.error("Error en prueba:", error);
+                    setErrors({ general: "Error en la prueba" });
+                  }
+                }}
+                className="w-full"
+                size="sm"
+                variant="secondary"
+              >
+                Probar Join (Debug)
+              </Button>
+            )}
+
+            {/* Botón de prueba directa */}
+            {!isNewGame && gameCode.trim() && (
+              <Button
+                type="button"
+                onClick={async () => {
+                  console.log("Prueba directa del endpoint...");
+                  try {
+                    const response = await fetch(
+                      "http://localhost:5001/games/join",
+                      {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                          userId: user.id,
+                          code: gameCode.trim(),
+                        }),
+                      }
+                    );
+
+                    const data = await response.json();
+                    console.log("Respuesta directa:", data);
+                    console.log("Status:", response.status);
+
+                    if (response.ok && data) {
+                      console.log("Juego encontrado (directo):", data);
+                      onJoinGame(data);
+                    } else {
+                      console.error("Error directo:", data);
+                      setErrors({ general: data.error || "Error desconocido" });
+                    }
+                  } catch (error) {
+                    console.error("Error en prueba directa:", error);
+                    setErrors({ general: "Error en la prueba directa" });
+                  }
+                }}
+                className="w-full"
+                size="sm"
+                variant="warning"
+              >
+                Prueba Directa
+              </Button>
+            )}
           </form>
 
           {/* Información adicional */}
@@ -269,6 +347,30 @@ export const Home: React.FC<HomeProps> = ({ onJoin }) => {
                 <p>4. ¡El más rápido gana puntos!</p>
               </div>
             </div>
+          </div>
+
+          {/* Botón de logout */}
+          <div
+            style={{
+              marginTop: "var(--space-4)",
+              textAlign: "center",
+            }}
+          >
+            <button
+              type="button"
+              onClick={onLogout}
+              style={{
+                fontSize: "var(--font-size-sm)",
+                color: "var(--gray-500)",
+                textDecoration: "underline",
+                cursor: "pointer",
+                background: "none",
+                border: "none",
+                padding: 0,
+              }}
+            >
+              Cerrar sesión
+            </button>
           </div>
         </Card>
 

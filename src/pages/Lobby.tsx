@@ -1,212 +1,467 @@
 import React, { useEffect, useState } from "react";
 import { useSocket } from "../hooks/useSocket";
-import { Game } from "./Game";
-
-interface Player {
-  username: string;
-  socketId: string;
-}
-
-interface GameStartedData {
-  letter?: string;
-  autoStarted?: boolean;
-  [key: string]: unknown;
-}
-
-interface GameReadyData {
-  timeLeft: number;
-  totalPlayers: number;
-  isNewRound?: boolean;
-}
-
-interface PlayerConfirmedData {
-  username: string;
-  confirmedPlayers: string[];
-}
+import { Card, Button, Badge, Loading } from "../components/ui";
+import type { User, SocketPlayer } from "../types";
 
 interface LobbyProps {
   username: string;
   gameCode: string;
+  currentUser?: User | null;
+  onGameStart?: (gameData: {
+    letter: string;
+    autoStarted: boolean;
+    roundNumber: number;
+    isNewRound: boolean;
+    hostUsername: string;
+  }) => void;
+  onBackToGameManager?: () => void;
 }
 
-export const Lobby: React.FC<LobbyProps> = ({ username, gameCode }) => {
-  const socketRef = useSocket();
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [gameStarted, setGameStarted] = useState(false);
-  const [showGame, setShowGame] = useState(false);
-  const [gameData, setGameData] = useState<GameStartedData>({});
-  const [waitingForConfirmations, setWaitingForConfirmations] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(30);
-  const [confirmedPlayers, setConfirmedPlayers] = useState<string[]>([]);
-  const [showGameComponent, setShowGameComponent] = useState(false);
-
-  // El primer jugador que entra a la sala es el "host"
-  const isHost = players.length > 0 && players[0].username === username;
+export const Lobby: React.FC<LobbyProps> = ({
+  username,
+  gameCode,
+  onGameStart,
+  onBackToGameManager,
+}) => {
+  const { socket, isConnected, isConnecting } = useSocket();
+  const [players, setPlayers] = useState<SocketPlayer[]>([]);
+  const [readyPlayers, setReadyPlayers] = useState<string[]>([]);
+  const isHost = players.length > 0 && players[0]?.username === username;
 
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socket || !isConnected) {
+      console.log("❌ Socket no disponible, esperando conexión...");
+      return;
+    }
 
-    const socket = socketRef.current;
+    console.log("🔌 Configurando socket...");
+    console.log("📝 Datos:", { gameCode, username });
+    console.log("🔗 Socket conectado:", isConnected);
+    console.log("🆔 Socket ID:", socket.id);
+
+    // Limpiar estado de jugadores listos para nueva ronda
+    setReadyPlayers([]);
+
+    // Emitir join_game para asegurar que estamos en la sala
+    console.log("🎮 Emitiendo join_game...");
     socket.emit("join_game", { gameCode, username });
 
     // Recibe lista de jugadores actualizada
-    socket.on("player_list", (list: Player[]) => {
+    socket.on("player_list", (list: SocketPlayer[]) => {
+      console.log("📋 LISTA DE JUGADORES RECIBIDA:");
+      console.log("   Cantidad:", list.length);
+      console.log(
+        "   Jugadores:",
+        list.map((p) => p.username)
+      );
+      console.log("   Datos completos:", list);
+      console.log("   Timestamp:", new Date().toISOString());
       setPlayers(list);
     });
 
-    // Escucha cuando el juego está listo para comenzar
-    socket.on("game_ready_to_start", (data: GameReadyData) => {
-      console.log("Juego listo para comenzar:", data);
-      setWaitingForConfirmations(true);
-      setTimeLeft(data.timeLeft);
-      setConfirmedPlayers([]);
-      setShowGameComponent(false); // Ocultar componente Game para mostrar confirmación
+    // Escucha cuando se une exitosamente
+    socket.on("joined_game", (data: { gameCode: string; username: string }) => {
+      console.log("🎉 UNIDO EXITOSAMENTE AL JUEGO:");
+      console.log("   Código:", data.gameCode);
+      console.log("   Usuario:", data.username);
+      console.log("   Timestamp:", new Date().toISOString());
+    });
 
-      if (data.isNewRound) {
-        console.log("Esperando confirmaciones para nueva ronda");
+    // Evento de prueba para verificar comunicación
+    socket.on("test_event", (data: { message: string; players: number }) => {
+      console.log("🧪 EVENTO DE PRUEBA RECIBIDO:");
+      console.log("   Mensaje:", data.message);
+      console.log("   Jugadores:", data.players);
+      console.log("   Timestamp:", new Date().toISOString());
+    });
+
+    // Escucha cuando el juego inicia automáticamente
+    socket.on(
+      "game_started",
+      (data: {
+        letter: string;
+        autoStarted: boolean;
+        roundNumber: number;
+        isNewRound: boolean;
+      }) => {
+        console.log("🎮 JUEGO INICIADO AUTOMÁTICAMENTE:");
+        console.log("   Letra:", data.letter);
+        console.log("   Auto iniciado:", data.autoStarted);
+        console.log("   Ronda:", data.roundNumber);
+        console.log("   Nueva ronda:", data.isNewRound);
+        console.log("   Timestamp:", new Date().toISOString());
+
+        // Navegar al juego con los datos
+        if (onGameStart) {
+          onGameStart({
+            ...data,
+            hostUsername: players[0]?.username || username,
+          });
+        }
       }
+    );
+
+    // Escucha cuando un jugador confirma que está listo
+    socket.on(
+      "player_confirmed",
+      (data: { username: string; confirmedPlayers: string[] }) => {
+        console.log("✅ JUGADOR CONFIRMADO:");
+        console.log("   Usuario:", data.username);
+        console.log("   Jugadores confirmados:", data.confirmedPlayers);
+        console.log("   Timestamp:", new Date().toISOString());
+
+        // Actualizar el estado de jugadores listos
+        setReadyPlayers(data.confirmedPlayers);
+      }
+    );
+
+    // Escucha errores de socket
+    socket.on("error", (data: { message: string }) => {
+      console.error("❌ Error de socket:", data.message);
     });
 
-    // Escucha cuando un jugador confirma
-    socket.on("player_confirmed", (data: PlayerConfirmedData) => {
-      console.log("Jugador confirmó:", data);
-      setConfirmedPlayers(data.confirmedPlayers);
-    });
-
-    // Escucha cuando el juego inicia
-    socket.on("game_started", (data: GameStartedData) => {
-      console.log("Juego iniciado desde Lobby:", data);
-      setGameData(data);
-      setGameStarted(true);
-      setShowGame(true);
-      setShowGameComponent(true);
-      setWaitingForConfirmations(false);
-    });
+    // Log adicional para verificar que los listeners están configurados
+    console.log(
+      "🎧 Listeners configurados para: player_list, joined_game, test_event, game_started, player_confirmed, error"
+    );
+    console.log("⏰ Timestamp de configuración:", new Date().toISOString());
 
     return () => {
+      console.log("🧹 Limpiando listeners de socket");
       socket.off("player_list");
-      socket.off("game_ready_to_start");
-      socket.off("player_confirmed");
+      socket.off("joined_game");
+      socket.off("test_event");
       socket.off("game_started");
+      socket.off("player_confirmed");
+      socket.off("error");
     };
-  }, [gameCode, username, socketRef]);
-
-  // Timer para actualizar el tiempo restante
-  useEffect(() => {
-    if (!waitingForConfirmations || timeLeft <= 0) return;
-
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [waitingForConfirmations, timeLeft]);
+  }, [socket, isConnected, gameCode, username, onGameStart, players]);
 
   const handleStartGame = () => {
     console.log("Emite start_game desde Lobby");
-    socketRef.current?.emit("start_game", { gameCode, username });
+    if (socket) {
+      socket.emit("start_game", { gameCode, username });
+    }
+    if (onGameStart) {
+      onGameStart({
+        letter: "",
+        autoStarted: false,
+        roundNumber: 1,
+        isNewRound: false,
+        hostUsername: players[0]?.username || username,
+      });
+    }
   };
 
   const handleConfirmReady = () => {
     console.log("Emite player_ready desde Lobby");
-    socketRef.current?.emit("player_ready", { gameCode, username });
+    if (socket) {
+      socket.emit("player_ready", { gameCode, username });
+    }
   };
 
-  if (showGame && showGameComponent && !waitingForConfirmations) {
-    return (
-      <Game
-        username={username}
-        gameCode={gameCode}
-        isHost={isHost}
-        gameData={gameData}
-      />
-    );
-  }
-
-  // Si estamos esperando confirmaciones, siempre mostrar el Lobby
-  if (waitingForConfirmations) {
-    return (
-      <div style={{ maxWidth: 400, margin: "0 auto", padding: 24 }}>
-        <h2>Sala de espera: {gameCode}</h2>
-        <ul>
-          {players.map((p) => (
-            <li key={p.socketId}>
-              {p.username}
-              {p.username === username && " (vos)"}
-              {players[0]?.username === p.username && " (host)"}
-              {confirmedPlayers.includes(p.username) && " ✅"}
-            </li>
-          ))}
-        </ul>
-
-        <div>
-          <h3>🔄 Nueva Ronda</h3>
-          <p>⏰ Tiempo restante: {timeLeft} segundos</p>
-          <p>
-            Esperando confirmaciones: {confirmedPlayers.length}/{players.length}
-          </p>
-          <p style={{ fontSize: "0.9rem", color: "#666" }}>
-            {confirmedPlayers.length === 0
-              ? "Iniciando nueva ronda..."
-              : "Esperando que todos confirmen..."}
-          </p>
-          {!confirmedPlayers.includes(username) && (
-            <button
-              onClick={handleConfirmReady}
-              style={{
-                marginTop: 16,
-                backgroundColor: "#27ae60",
-                color: "white",
-                padding: "12px 24px",
-                border: "none",
-                borderRadius: "8px",
-                cursor: "pointer",
-              }}
-            >
-              ¡Listo!
-            </button>
-          )}
-          {confirmedPlayers.includes(username) && (
-            <p style={{ color: "#27ae60", fontWeight: "bold" }}>
-              ✅ Ya confirmaste
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const handleBackToGameManager = () => {
+    if (onBackToGameManager) {
+      onBackToGameManager();
+    }
+  };
 
   return (
-    <div style={{ maxWidth: 400, margin: "0 auto", padding: 24 }}>
-      <h2>Sala de espera: {gameCode}</h2>
-      <ul>
-        {players.map((p) => (
-          <li key={p.socketId}>
-            {p.username}
-            {p.username === username && " (vos)"}
-            {players[0]?.username === p.username && " (host)"}
-            {confirmedPlayers.includes(p.username) && " ✅"}
-          </li>
-        ))}
-      </ul>
+    <div
+      className="min-h-screen flex items-center justify-center"
+      style={{
+        background:
+          "linear-gradient(135deg, var(--primary-50), var(--secondary-50))",
+        padding: "var(--space-4)",
+      }}
+    >
+      <div style={{ width: "100%", maxWidth: "28rem" }}>
+        <Card className="fade-in">
+          <div
+            className="text-center"
+            style={{ marginBottom: "var(--space-6)" }}
+          >
+            <h2
+              style={{
+                fontSize: "var(--font-size-2xl)",
+                fontWeight: "var(--font-weight-bold)",
+                color: "var(--gray-900)",
+                marginBottom: "var(--space-2)",
+              }}
+            >
+              Sala de Espera
+            </h2>
+            <p style={{ color: "var(--gray-600)" }}>
+              Código:{" "}
+              <span
+                style={{
+                  fontFamily: "monospace",
+                  fontWeight: "var(--font-weight-bold)",
+                  color: "var(--primary-600)",
+                }}
+              >
+                {gameCode}
+              </span>
+            </p>
+          </div>
 
-      <div>
-        <p>
-          {players.length < 2
-            ? "Esperando más jugadores..."
-            : "Listos para empezar"}
-        </p>
-        {isHost && players.length > 1 && !gameStarted && (
-          <button onClick={handleStartGame} style={{ marginTop: 16 }}>
-            Iniciar partida
-          </button>
-        )}
+          {/* Estado de conexión */}
+          <div style={{ marginBottom: "var(--space-6)" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "var(--space-2)",
+                marginBottom: "var(--space-4)",
+              }}
+            >
+              <div
+                style={{
+                  width: "0.5rem",
+                  height: "0.5rem",
+                  borderRadius: "50%",
+                  backgroundColor: isConnecting
+                    ? "var(--warning-500)"
+                    : isConnected
+                    ? "var(--success-500)"
+                    : "var(--error-500)",
+                }}
+              />
+              <span
+                style={{
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--gray-600)",
+                }}
+              >
+                {isConnecting
+                  ? "Conectando..."
+                  : isConnected
+                  ? "Conectado"
+                  : "Desconectado"}
+              </span>
+            </div>
+          </div>
+
+          {/* Lista de jugadores */}
+          <div style={{ marginBottom: "var(--space-6)" }}>
+            <h3
+              style={{
+                fontSize: "var(--font-size-lg)",
+                fontWeight: "var(--font-weight-semibold)",
+                color: "var(--gray-900)",
+                marginBottom: "var(--space-3)",
+              }}
+            >
+              Jugadores ({players.length})
+            </h3>
+
+            {/* Mensaje de estado de listos */}
+            {players.length >= 2 && (
+              <div
+                style={{
+                  marginBottom: "var(--space-3)",
+                  padding: "var(--space-2)",
+                  backgroundColor: "var(--gray-50)",
+                  borderRadius: "var(--radius-md)",
+                  textAlign: "center",
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: "var(--font-size-sm)",
+                    color: "var(--gray-600)",
+                  }}
+                >
+                  {readyPlayers.length === players.length
+                    ? "¡Todos listos! Iniciando juego..."
+                    : readyPlayers.length > 0
+                    ? `${readyPlayers.length} de ${players.length} jugadores listos`
+                    : "Marca 'Estoy Listo' cuando estés preparado para la siguiente ronda"}
+                </p>
+              </div>
+            )}
+            {players.length === 0 ? (
+              <div
+                className="text-center"
+                style={{ padding: "var(--space-8) 0" }}
+              >
+                <Loading size="lg" className="mx-auto mb-4" />
+                <p style={{ color: "var(--gray-600)" }}>
+                  Esperando jugadores...
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {players.map((player) => (
+                  <div
+                    key={player.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "var(--space-3)",
+                      backgroundColor: "var(--gray-50)",
+                      borderRadius: "var(--radius-lg)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "var(--space-2)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "var(--font-size-sm)",
+                          fontWeight: "var(--font-weight-medium)",
+                          color: "var(--gray-900)",
+                        }}
+                      >
+                        {player.username}
+                      </span>
+                      {player.username === username && (
+                        <Badge variant="primary">Tú</Badge>
+                      )}
+                      {players[0]?.username === player.username && (
+                        <Badge variant="warning">Host</Badge>
+                      )}
+                      {readyPlayers.includes(player.username) && (
+                        <Badge variant="success">Listo</Badge>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "var(--font-size-xs)",
+                        color: "var(--gray-500)",
+                      }}
+                    >
+                      {player.score} pts
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-2)",
+            }}
+          >
+            {/* Botón de inicio (solo para host) */}
+            {isHost && players.length >= 2 && (
+              <Button
+                onClick={handleStartGame}
+                className="w-full"
+                size="lg"
+                variant="primary"
+              >
+                Iniciar Juego
+              </Button>
+            )}
+
+            {/* Botón para marcarse como listo (para todos los jugadores) */}
+            {!isHost && players.length >= 2 && (
+              <Button
+                onClick={handleConfirmReady}
+                className="w-full"
+                size="lg"
+                variant={
+                  readyPlayers.includes(username) ? "success" : "primary"
+                }
+                disabled={readyPlayers.includes(username)}
+              >
+                {readyPlayers.includes(username) ? "¡Listo!" : "Estoy Listo"}
+              </Button>
+            )}
+
+            {/* Botón para marcarse como listo (para el host también) */}
+            {isHost && players.length >= 2 && (
+              <Button
+                onClick={handleConfirmReady}
+                className="w-full mb-3"
+                size="md"
+                variant={
+                  readyPlayers.includes(username) ? "success" : "secondary"
+                }
+                disabled={readyPlayers.includes(username)}
+              >
+                {readyPlayers.includes(username)
+                  ? "¡Listo!"
+                  : "Marcar como Listo"}
+              </Button>
+            )}
+            {/* Mensaje para host */}
+            {isHost && players.length < 2 && (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "var(--space-4)",
+                  backgroundColor: "var(--warning-50)",
+                  borderRadius: "var(--radius-lg)",
+                }}
+              >
+                <p
+                  style={{
+                    color: "var(--warning-700)",
+                    fontSize: "var(--font-size-sm)",
+                  }}
+                >
+                  Necesitas al menos 2 jugadores para iniciar
+                </p>
+              </div>
+            )}
+
+            {/* Mensaje para jugadores */}
+            {!isHost && (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "var(--space-4)",
+                  backgroundColor: "var(--primary-50)",
+                  borderRadius: "var(--radius-lg)",
+                }}
+              >
+                <p
+                  style={{
+                    color: "var(--primary-700)",
+                    fontSize: "var(--font-size-sm)",
+                  }}
+                >
+                  Esperando que el host inicie el juego...
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Botón para regresar al game manager */}
+          <div
+            style={{
+              marginTop: "var(--space-4)",
+              textAlign: "center",
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleBackToGameManager}
+              style={{
+                fontSize: "var(--font-size-sm)",
+                color: "var(--gray-500)",
+                textDecoration: "underline",
+                cursor: "pointer",
+                background: "none",
+                border: "none",
+                padding: 0,
+              }}
+            >
+              Volver al menú principal
+            </button>
+          </div>
+        </Card>
       </div>
     </div>
   );
