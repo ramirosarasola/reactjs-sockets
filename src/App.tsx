@@ -4,10 +4,11 @@ import { GameManager } from "./pages/GameManager";
 import { MyGames } from "./pages/MyGames";
 import { Lobby } from "./pages/Lobby";
 import { Game } from "./pages/Game";
+import { GameConfigs } from "./pages/GameConfigs";
 import { logBackendStatus } from "./utils/healthCheck";
 import type { User, Game as GameType } from "./types";
 
-type AppStep = "auth" | "gameManager" | "myGames" | "lobby" | "game";
+type AppStep = "auth" | "gameManager" | "myGames" | "lobby" | "game" | "configs";
 
 export default function App() {
   const [currentStep, setCurrentStep] = useState<AppStep>("auth");
@@ -99,7 +100,7 @@ export default function App() {
       return <Auth onAuthSuccess={handleAuthSuccess} />;
 
     case "gameManager":
-      return <GameManager user={currentUser!} onJoinGame={handleJoinGame} onLogout={handleLogout} onShowMyGames={() => setCurrentStep("myGames")} />;
+      return <GameManager user={currentUser!} onJoinGame={handleJoinGame} onLogout={handleLogout} onShowMyGames={() => setCurrentStep("myGames")} onShowConfigs={() => setCurrentStep("configs")} />;
 
     case "myGames":
       return <MyGames userId={currentUser!.id} username={currentUser!.username} onJoinGame={handleJoinGameFromMyGames} onBack={() => setCurrentStep("gameManager")} />;
@@ -109,6 +110,9 @@ export default function App() {
 
     case "game":
       return <Game username={currentUser!.username} gameCode={currentGame!.code} isHost={isHost} gameData={gameData} onBackToLobby={handleBackToLobby} />;
+
+    case "configs":
+      return <GameConfigs onBack={() => setCurrentStep("gameManager")} />;
 
     default:
       return <Auth onAuthSuccess={handleAuthSuccess} />;

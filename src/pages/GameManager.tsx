@@ -9,9 +9,10 @@ interface GameManagerProps {
   onJoinGame: (game: Game) => void;
   onLogout: () => void;
   onShowMyGames?: () => void;
+  onShowConfigs?: () => void;
 }
 
-export const GameManager: React.FC<GameManagerProps> = ({ user, onJoinGame, onLogout, onShowMyGames }) => {
+export const GameManager: React.FC<GameManagerProps> = ({ user, onJoinGame, onLogout, onShowMyGames, onShowConfigs }) => {
   const [gameCode, setGameCode] = useState("");
   const [isNewGame, setIsNewGame] = useState(true);
   const [game, setGame] = useState<Game | null>(null);
@@ -196,6 +197,15 @@ export const GameManager: React.FC<GameManagerProps> = ({ user, onJoinGame, onLo
               <div style={{ marginTop: "var(--space-4)" }}>
                 <Button onClick={onShowMyGames} variant="secondary" className="w-full" size="lg">
                   Mis Partidas
+                </Button>
+              </div>
+            )}
+
+            {/* Botón Configuraciones */}
+            {onShowConfigs && (
+              <div style={{ marginTop: "var(--space-4)" }}>
+                <Button onClick={onShowConfigs} variant="secondary" className="w-full" size="sm">
+                  Ver Configuraciones
                 </Button>
               </div>
             )}

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Button, Card, Input } from "../components/ui";
+import { GameConfigSelector } from "../components/GameConfigSelector";
 import { useApi } from "../hooks/useApi";
 import { apiService } from "../services/api";
 import type { User } from "../types";
@@ -7,15 +8,18 @@ import type { User } from "../types";
 interface HomeProps {
   onJoin: (user: string, code: string, isNewGame: boolean) => Promise<void>;
   onShowMyGames?: () => void;
+  onShowConfigs?: () => void;
   userId?: string;
   username?: string;
 }
 
-export const Home: React.FC<HomeProps> = ({ onJoin, onShowMyGames, userId, username: currentUsername }) => {
+export const Home: React.FC<HomeProps> = ({ onJoin, onShowMyGames, onShowConfigs, userId, username: currentUsername }) => {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [gameCode, setGameCode] = useState("");
   const [isNewGame, setIsNewGame] = useState(true);
+  const [selectedConfigId, setSelectedConfigId] = useState<string | undefined>();
+  const [showConfigSelector, setShowConfigSelector] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const { execute: createUser, loading: creatingUser } = useApi<User>({
@@ -60,6 +64,12 @@ export const Home: React.FC<HomeProps> = ({ onJoin, onShowMyGames, userId, usern
     try {
       // Crear usuario primero
       await createUser(() => apiService.createUser(username.trim(), email.trim()));
+
+      // Unirse al juego con configuración si es un nuevo juego
+      if (isNewGame && selectedConfigId) {
+        // Aquí podrías pasar la configuración al backend
+        console.log("Creando juego con configuración:", selectedConfigId);
+      }
 
       // Unirse al juego
       await onJoin(username.trim(), gameCode.trim(), isNewGame);
@@ -176,6 +186,26 @@ export const Home: React.FC<HomeProps> = ({ onJoin, onShowMyGames, userId, usern
               </div>
             )}
 
+            {/* Configuración de juego (solo para nuevos juegos) */}
+            {isNewGame && (
+              <div className="space-y-3">
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "var(--font-size-sm)",
+                    fontWeight: "var(--font-weight-medium)",
+                    color: "var(--gray-700)",
+                  }}
+                >
+                  Configuración del juego
+                </label>
+                <Button type="button" variant="secondary" onClick={() => setShowConfigSelector(true)} className="w-full" size="sm">
+                  {selectedConfigId ? "Cambiar configuración" : "Seleccionar configuración"}
+                </Button>
+                {selectedConfigId && <p style={{ fontSize: "var(--font-size-xs)", color: "var(--gray-600)" }}>Configuración personalizada seleccionada</p>}
+              </div>
+            )}
+
             {/* Botón de envío */}
             <Button type="submit" loading={creatingUser} disabled={creatingUser} className="w-full" size="lg">
               {isNewGame ? "Crear juego" : "Unirse al juego"}
@@ -186,6 +216,15 @@ export const Home: React.FC<HomeProps> = ({ onJoin, onShowMyGames, userId, usern
               <div style={{ marginTop: "var(--space-4)" }}>
                 <Button onClick={onShowMyGames} variant="secondary" className="w-full" size="lg">
                   Mis Partidas
+                </Button>
+              </div>
+            )}
+
+            {/* Botón Configuraciones */}
+            {onShowConfigs && (
+              <div style={{ marginTop: "var(--space-4)" }}>
+                <Button onClick={onShowConfigs} variant="secondary" className="w-full" size="sm">
+                  Ver Configuraciones
                 </Button>
               </div>
             )}
@@ -240,6 +279,9 @@ export const Home: React.FC<HomeProps> = ({ onJoin, onShowMyGames, userId, usern
           </p>
         </div>
       </div>
+
+      {/* Selector de configuración */}
+      <GameConfigSelector isOpen={showConfigSelector} onClose={() => setShowConfigSelector(false)} onConfigSelect={setSelectedConfigId} />
     </div>
   );
 };

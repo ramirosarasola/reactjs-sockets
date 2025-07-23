@@ -1,4 +1,4 @@
-import type { User, Game, ApiResponse, GameScore, CreateRoundResponse, SaveRoundAnswerResponse, RoundDetailsResponse, FinishRoundResponse, RoundAnswer, UserGame } from "../types";
+import type { User, Game, ApiResponse, GameScore, CreateRoundResponse, SaveRoundAnswerResponse, RoundDetailsResponse, FinishRoundResponse, RoundAnswer, UserGame, GameSettings, GameConfigValidation, GameConfig } from "../types";
 
 const API_BASE_URL = "http://localhost:5001";
 
@@ -171,6 +171,66 @@ class ApiService {
   // ===== HEALTH CHECK =====
   async healthCheck(): Promise<ApiResponse<{ status: string }>> {
     return this.request<{ status: string }>("/health");
+  }
+
+  // ===== GAME CONFIGURATIONS =====
+  async getAllGameSettings(): Promise<ApiResponse<GameSettings[]>> {
+    return this.request<GameSettings[]>("/game-config");
+  }
+
+  async getDefaultGameSettings(): Promise<ApiResponse<GameSettings>> {
+    return this.request<GameSettings>("/game-config/default");
+  }
+
+  async getGameSettingsById(id: string): Promise<ApiResponse<GameSettings>> {
+    return this.request<GameSettings>(`/game-config/${id}`);
+  }
+
+  async createGameSettings(name: string, description: string, config: GameConfig): Promise<ApiResponse<GameSettings>> {
+    return this.request<GameSettings>("/game-config", {
+      method: "POST",
+      body: JSON.stringify({ name, description, config }),
+    });
+  }
+
+  async updateGameSettings(id: string, name: string, description: string, config: GameConfig): Promise<ApiResponse<GameSettings>> {
+    return this.request<GameSettings>(`/game-config/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name, description, config }),
+    });
+  }
+
+  async setDefaultGameSettings(id: string): Promise<ApiResponse<{ message: string }>> {
+    return this.request<{ message: string }>(`/game-config/${id}/default`, {
+      method: "PATCH",
+    });
+  }
+
+  async deleteGameSettings(id: string): Promise<ApiResponse<{ message: string }>> {
+    return this.request<{ message: string }>(`/game-config/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  async initializeDefaultSettings(): Promise<ApiResponse<{ message: string }>> {
+    return this.request<{ message: string }>("/game-config/initialize", {
+      method: "POST",
+    });
+  }
+
+  async validateGameConfig(config: GameConfig): Promise<ApiResponse<GameConfigValidation>> {
+    return this.request<GameConfigValidation>("/game-config/validate", {
+      method: "POST",
+      body: JSON.stringify({ config }),
+    });
+  }
+
+  // ===== GAMES WITH CONFIG =====
+  async createGameWithConfig(userId: string, configId?: string): Promise<ApiResponse<Game>> {
+    return this.request<Game>("/games", {
+      method: "POST",
+      body: JSON.stringify({ userId, configId }),
+    });
   }
 }
 

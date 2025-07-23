@@ -244,3 +244,37 @@ export interface ModalProps {
   size?: "sm" | "md" | "lg" | "xl";
   className?: string;
 }
+
+// ===== CONFIGURACIÓN DE JUEGO =====
+
+export interface GameConfig {
+  maxRounds: number;
+  roundTimeSeconds: number;
+  autoStartDelay: number;
+  minPlayers: number;
+  maxPlayers: number;
+  categories: string[];
+  pointsPerWin: number;
+  pointsPerUniqueAnswer: number;
+}
+
+export interface GameSettings {
+  id: string;
+  name: string;
+  description: string;
+  config: GameConfig;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GameConfigResponse {
+  success: boolean;
+  settings: GameSettings[];
+}
+
+export interface GameConfigValidation {
+  success: boolean;
+  isValid: boolean;
+  errors: string[];
+}
