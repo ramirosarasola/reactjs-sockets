@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import type { SocketEvents } from "../types";
+import { getSocketUrl } from "../config/environment";
 
 interface UseSocketOptions {
   onConnect?: () => void;
@@ -13,7 +14,7 @@ export const useSocket = (options: UseSocketOptions = {}) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const socketRef = useRef<Socket | null>(null);
 
-  const connect = (url: string = "http://localhost:5001") => {
+  const connect = (url: string = getSocketUrl()) => {
     if (socketRef.current?.connected) {
       console.log("🔗 Socket ya conectado, reutilizando conexión");
       return socketRef.current;
@@ -59,10 +60,7 @@ export const useSocket = (options: UseSocketOptions = {}) => {
     }
   };
 
-  const emit = <K extends keyof SocketEvents>(
-    event: K,
-    data: SocketEvents[K]
-  ) => {
+  const emit = <K extends keyof SocketEvents>(event: K, data: SocketEvents[K]) => {
     if (socketRef.current?.connected) {
       socketRef.current.emit(event, data);
     } else {
@@ -70,20 +68,14 @@ export const useSocket = (options: UseSocketOptions = {}) => {
     }
   };
 
-  const on = <K extends keyof SocketEvents>(
-    event: K,
-    callback: (data: SocketEvents[K]) => void
-  ) => {
+  const on = <K extends keyof SocketEvents>(event: K, callback: (data: SocketEvents[K]) => void) => {
     if (socketRef.current) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       socketRef.current.on(event, callback as any);
     }
   };
 
-  const off = <K extends keyof SocketEvents>(
-    event: K,
-    callback?: (data: SocketEvents[K]) => void
-  ) => {
+  const off = <K extends keyof SocketEvents>(event: K, callback?: (data: SocketEvents[K]) => void) => {
     if (socketRef.current) {
       if (callback) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

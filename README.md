@@ -1,6 +1,89 @@
-# React + TypeScript + Vite
+# TutiFruti Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend de la aplicación TutiFruti desarrollado con React, TypeScript y Vite.
+
+## 🚀 Configuración Rápida
+
+### 1. Instalar dependencias
+```bash
+npm install
+```
+
+### 2. Configurar variables de entorno
+```bash
+npm run setup-env
+```
+
+### 3. Iniciar servidor de desarrollo
+```bash
+npm run dev
+```
+
+## 📋 Variables de Entorno
+
+El proyecto utiliza variables de entorno para configurar las URLs de la API y WebSockets según el entorno (desarrollo/producción).
+
+### Configuración Automática
+Ejecuta el siguiente comando para crear automáticamente el archivo `.env`:
+```bash
+npm run setup-env
+```
+
+### Configuración Manual
+1. Copia el archivo `env.example` a `.env`
+2. Edita las URLs según tu entorno
+
+**Desarrollo:**
+```env
+VITE_API_BASE_URL=http://localhost:5001
+VITE_SOCKET_URL=http://localhost:5001
+VITE_NODE_ENV=development
+```
+
+**Producción:**
+```env
+VITE_API_BASE_URL=https://tu-servidor-produccion.com
+VITE_SOCKET_URL=https://tu-servidor-produccion.com
+VITE_NODE_ENV=production
+```
+
+Para más información, consulta [ENVIRONMENT_SETUP.md](./ENVIRONMENT_SETUP.md).
+
+## 🛠️ Scripts Disponibles
+
+- `npm run dev` - Inicia el servidor de desarrollo
+- `npm run build` - Construye la aplicación para producción
+- `npm run preview` - Previsualiza la build de producción
+- `npm run lint` - Ejecuta el linter
+- `npm run setup-env` - Configura las variables de entorno
+
+## 📁 Estructura del Proyecto
+
+```
+src/
+├── components/     # Componentes reutilizables
+├── config/        # Configuración de la aplicación
+├── hooks/         # Hooks personalizados
+├── pages/         # Páginas de la aplicación
+├── services/      # Servicios de API
+├── store/         # Estado global (Zustand)
+├── types/         # Tipos TypeScript
+└── utils/         # Utilidades
+```
+
+## 🔧 Tecnologías Utilizadas
+
+- **React 19** - Biblioteca de UI
+- **TypeScript** - Tipado estático
+- **Vite** - Build tool y dev server
+- **Socket.io Client** - Comunicación en tiempo real
+- **Zustand** - Gestión de estado
+- **TailwindCSS** - Framework de CSS
+
+## 📖 Documentación Adicional
+
+- [Configuración de Variables de Entorno](./ENVIRONMENT_SETUP.md)
+- [Refactorización del Frontend](./FRONTEND_REFACTOR.md)
 
 Currently, two official plugins are available:
 

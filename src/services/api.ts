@@ -1,6 +1,7 @@
 import type { User, Game, ApiResponse, GameScore, CreateRoundResponse, SaveRoundAnswerResponse, RoundDetailsResponse, FinishRoundResponse, RoundAnswer, UserGame, GameSettings, GameConfigValidation, GameConfig } from "../types";
+import { getApiBaseUrl } from "../config/environment";
 
-const API_BASE_URL = "http://localhost:5001";
+const API_BASE_URL = getApiBaseUrl();
 
 class ApiService {
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
