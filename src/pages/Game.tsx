@@ -50,6 +50,11 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
   const [isPlaying, setIsPlaying] = useState(!!gameData.letter || gameData.autoStarted);
   const [rounds, setRounds] = useState<RoundData[]>([]);
   const [currentScores, setCurrentScores] = useState<Record<string, number>>({});
+  // Estado para la fase de confirmación entre rondas
+  const [isReadyPhase, setIsReadyPhase] = useState<boolean>(false);
+  const [readyPlayers, setReadyPlayers] = useState<string[]>([]);
+  const [totalPlayers, setTotalPlayers] = useState<number>(0);
+  const [readyTimeLeft, setReadyTimeLeft] = useState<number>(0);
 
   useEffect(() => {
     if (!socket) {
@@ -77,6 +82,9 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
       setCurrentRound(data.roundNumber || 1);
       setTimeLeft(60);
       setCurrentInputs({});
+      setIsReadyPhase(false);
+      setReadyPlayers([]);
+      setReadyTimeLeft(0);
 
       if (data.autoStarted) {
         console.log("Juego iniciado automáticamente por timeout");
@@ -85,6 +93,22 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
       if (data.isNewRound) {
         console.log("Nueva ronda iniciada:", data.roundNumber);
       }
+    });
+
+    // Fase de confirmación para nueva ronda
+    on("game_ready_to_start", (data: { timeLeft: number; totalPlayers: number; isNewRound?: boolean }) => {
+      console.log("Fase de preparación para nueva ronda:", data);
+      setIsPlaying(false);
+      setIsReadyPhase(true);
+      setReadyPlayers([]);
+      setTotalPlayers(data.totalPlayers || 0);
+      setReadyTimeLeft(Math.max(0, Math.floor(data.timeLeft || 0)));
+    });
+
+    // Jugador confirmado
+    on("player_confirmed", (data: { username: string; confirmedPlayers: string[] }) => {
+      console.log("Jugador confirmó estar listo:", data);
+      setReadyPlayers(data.confirmedPlayers || []);
     });
 
     // Listen when someone finishes the round
@@ -109,6 +133,8 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
 
     return () => {
       off("game_started");
+      off("game_ready_to_start");
+      off("player_confirmed");
       off("round_finished");
     };
   }, [socket, gameCode, username, currentLetter, isPlaying, gameData, isHost, currentRound, emit, on, off, timeLeft]);
@@ -127,6 +153,14 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
     const timer = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
     return () => clearTimeout(timer);
   }, [isPlaying, timeLeft, emit, gameCode, username, currentInputs]);
+
+  // Temporizador local para la fase de preparación
+  useEffect(() => {
+    if (!isReadyPhase) return;
+    if (readyTimeLeft <= 0) return;
+    const timer = setTimeout(() => setReadyTimeLeft((t) => t - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [isReadyPhase, readyTimeLeft]);
 
   const handleChange = (cat: string, value: string) => {
     if (value && value[0].toUpperCase() !== currentLetter) return;
@@ -156,6 +190,11 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
     console.log("Iniciando siguiente ronda desde Game");
     console.log("Datos enviados:", { gameCode, username });
     emit("start_next_round", { gameCode, username });
+  };
+
+  const handlePlayerReady = () => {
+    console.log("Confirmando listo para siguiente ronda", { gameCode, username });
+    emit("player_ready", { gameCode, username });
   };
 
   const handleBackToLobby = () => {
@@ -233,6 +272,51 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
             >
               Tuti Fruti - Tabla de Juego
             </h1>
+
+            {/* Fase de confirmación para iniciar la siguiente ronda */}
+            {isReadyPhase && !isPlaying && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  gap: "var(--space-8)",
+                  flexWrap: "wrap",
+                  marginBottom: "var(--space-4)",
+                }}
+              >
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "var(--space-4)",
+                    backgroundColor: "var(--primary-50)",
+                    borderRadius: "var(--radius-lg)",
+                    border: "2px solid var(--primary-200)",
+                    minWidth: 280,
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: "var(--font-size-sm)",
+                      color: "var(--primary-700)",
+                      marginBottom: "var(--space-1)",
+                    }}
+                  >
+                    Preparando siguiente ronda
+                  </p>
+                  <div style={{ fontSize: "var(--font-size-2xl)", fontWeight: "var(--font-weight-bold)", color: "var(--primary-600)" }}>{readyTimeLeft}s</div>
+                  <div style={{ marginTop: "var(--space-2)", color: "var(--gray-600)", fontSize: "var(--font-size-sm)" }}>
+                    Listos: {readyPlayers.length} / {totalPlayers}
+                  </div>
+                  {readyPlayers.length > 0 && <div style={{ marginTop: "var(--space-2)", color: "var(--gray-500)", fontSize: "var(--font-size-xs)" }}>{readyPlayers.join(", ")}</div>}
+                  <div style={{ marginTop: "var(--space-4)" }}>
+                    <Button onClick={handlePlayerReady} size="sm" variant="primary">
+                      Estoy listo
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Información de la ronda actual */}
             {isPlaying && (
