@@ -108,6 +108,7 @@ export interface SocketEvents {
     username: string;
     answers: Record<string, string>;
   };
+  vote_answer: { gameCode: string; voter: string; target: string; category: string; points: number };
 
   // Servidor → Cliente
   joined_game: { gameCode: string; username: string };
@@ -127,9 +128,15 @@ export interface SocketEvents {
   player_confirmed: { username: string; confirmedPlayers: string[] };
   round_finished: {
     finishedBy: string;
-    answers: Record<string, string>;
+    answersByPlayer: Record<string, Record<string, string>>;
+    letter?: string;
     scores: Record<string, number>;
     roundNumber: number;
+  };
+  round_points_updated: {
+    roundNumber: number;
+    roundPoints: Record<string, number>;
+    votes: Record<string, Record<string, Record<string, number>>>;
   };
   player_left: { username: string; message: string };
   error: { message: string };

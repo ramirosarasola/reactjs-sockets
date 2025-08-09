@@ -25,10 +25,11 @@ interface GameStartedData {
 interface RoundData {
   roundNumber: number;
   letter: string;
-  answers: Record<string, string>;
+  answersByPlayer: Record<string, Record<string, string>>;
   finishedBy: string;
   scores: Record<string, number>;
   timeLeft: number;
+  roundPoints?: Record<string, number>;
 }
 
 interface GameProps {
@@ -55,6 +56,8 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
   const [readyPlayers, setReadyPlayers] = useState<string[]>([]);
   const [totalPlayers, setTotalPlayers] = useState<number>(0);
   const [readyTimeLeft, setReadyTimeLeft] = useState<number>(0);
+  const [, setVotes] = useState<Record<string, Record<string, Record<string, number>>>>({});
+  const [hoveredCell, setHoveredCell] = useState<{ round: number; player: string; category: string } | null>(null);
 
   useEffect(() => {
     if (!socket) {
@@ -112,23 +115,66 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
     });
 
     // Listen when someone finishes the round
-    on("round_finished", (data: { finishedBy: string; answers: Record<string, string>; scores: Record<string, number>; roundNumber: number }) => {
+    on("round_finished", (data: { finishedBy: string; answersByPlayer: Record<string, Record<string, string>>; letter?: string; scores: Record<string, number>; roundNumber: number }) => {
       console.log("Ronda terminada por:", data.finishedBy);
       console.log("Puntuaciones actualizadas:", data.scores);
 
-      // Agregar la ronda completada a la tabla
+      // Construir/actualizar la ronda con todas las respuestas conocidas
       const newRound: RoundData = {
         roundNumber: data.roundNumber,
-        letter: currentLetter,
-        answers: data.answers,
+        letter: data.letter || currentLetter,
+        answersByPlayer: data.answersByPlayer || {},
         finishedBy: data.finishedBy,
         scores: data.scores,
         timeLeft: timeLeft,
+        roundPoints: {},
       };
 
-      setRounds((prev) => [...prev, newRound]);
+      setRounds((prev) => {
+        const existingIndex = prev.findIndex((r) => r.roundNumber === newRound.roundNumber);
+        if (existingIndex === -1) {
+          return [...prev, newRound];
+        }
+        const existing = prev[existingIndex];
+        const mergedAnswers: Record<string, Record<string, string>> = { ...existing.answersByPlayer };
+        Object.entries(newRound.answersByPlayer).forEach(([player, ans]) => {
+          mergedAnswers[player] = { ...(mergedAnswers[player] || {}), ...ans };
+        });
+        const updated: RoundData = {
+          ...existing,
+          answersByPlayer: mergedAnswers,
+          letter: newRound.letter || existing.letter,
+          scores: newRound.scores,
+          finishedBy: existing.finishedBy || newRound.finishedBy,
+        };
+        const copy = [...prev];
+        copy[existingIndex] = updated;
+        return copy;
+      });
       setCurrentScores(data.scores);
       setIsPlaying(false);
+
+      // Si yo no fui quien terminó y aún estaba jugando, envío mis respuestas parciales
+      if (username !== data.finishedBy && isPlaying && Object.keys(currentInputs).length > 0) {
+        emit("tuti_fruti_finished", {
+          gameCode,
+          username,
+          answers: currentInputs,
+        });
+      }
+    });
+
+    // Actualización de puntos por votos
+    on("round_points_updated", (data: { roundNumber: number; roundPoints: Record<string, number>; votes: Record<string, Record<string, Record<string, number>>> }) => {
+      if (!data) return;
+      setRounds((prev) => {
+        const index = prev.findIndex((r) => r.roundNumber === data.roundNumber);
+        if (index === -1) return prev;
+        const updated = [...prev];
+        updated[index] = { ...updated[index], roundPoints: data.roundPoints };
+        return updated;
+      });
+      setVotes(data.votes || {});
     });
 
     return () => {
@@ -136,9 +182,11 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
       off("game_ready_to_start");
       off("player_confirmed");
       off("round_finished");
+      off("round_points_updated");
     };
-  }, [socket, gameCode, username, currentLetter, isPlaying, gameData, isHost, currentRound, emit, on, off, timeLeft]);
+  }, [socket, gameCode, username, currentLetter, isPlaying, gameData, isHost, currentRound, emit, on, off, timeLeft, currentInputs]);
 
+  // Timer local para la ronda actual
   useEffect(() => {
     if (!isPlaying) return;
     if (timeLeft === 0) {
@@ -525,7 +573,7 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
                         minWidth: "120px",
                       }}
                     >
-                      Ganador
+                      Puntos Ronda
                     </th>
                   </tr>
                 </thead>
@@ -533,64 +581,98 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
                 {/* Cuerpo de la tabla */}
                 <tbody>
                   {/* Filas de rondas completadas */}
-                  {rounds.map((round, index) => (
-                    <tr
-                      key={round.roundNumber}
-                      style={{
-                        borderBottom: "1px solid var(--gray-200)",
-                        backgroundColor: index % 2 === 0 ? "white" : "var(--gray-50)",
-                      }}
-                    >
-                      <td
+                  {rounds.flatMap((round, index) => {
+                    const players = Object.keys(round.answersByPlayer || {});
+                    return players.map((player, pIndex) => (
+                      <tr
+                        key={`${round.roundNumber}-${player}`}
                         style={{
-                          padding: "var(--space-3)",
-                          textAlign: "center",
-                          fontWeight: "var(--font-weight-bold)",
-                          color: "var(--gray-700)",
-                          borderRight: "2px solid var(--gray-200)",
+                          borderBottom: "1px solid var(--gray-200)",
+                          backgroundColor: (index + pIndex) % 2 === 0 ? "white" : "var(--gray-50)",
+                          height: round.roundNumber === currentRound ? 84 : 40,
                         }}
                       >
-                        {round.roundNumber}
-                      </td>
-                      <td
-                        style={{
-                          padding: "var(--space-3)",
-                          textAlign: "center",
-                          fontWeight: "var(--font-weight-bold)",
-                          color: "var(--primary-600)",
-                          fontSize: "var(--font-size-lg)",
-                          borderRight: "2px solid var(--gray-200)",
-                        }}
-                      >
-                        {round.letter}
-                      </td>
-                      {CATEGORIES.map((cat) => (
                         <td
-                          key={cat.key}
                           style={{
-                            padding: "var(--space-3)",
+                            padding: round.roundNumber === currentRound ? "var(--space-3)" : "var(--space-2)",
                             textAlign: "center",
-                            borderRight: "1px solid var(--gray-200)",
-                            fontSize: "var(--font-size-sm)",
+                            fontWeight: "var(--font-weight-bold)",
                             color: "var(--gray-700)",
-                            fontWeight: "var(--font-weight-medium)",
+                            borderRight: "2px solid var(--gray-200)",
                           }}
                         >
-                          {round.answers[cat.key] || "-"}
+                          {round.roundNumber}
                         </td>
-                      ))}
-                      <td
-                        style={{
-                          padding: "var(--space-3)",
-                          textAlign: "center",
-                          fontWeight: "var(--font-weight-bold)",
-                          color: "var(--success-600)",
-                        }}
-                      >
-                        {round.finishedBy}
-                      </td>
-                    </tr>
-                  ))}
+                        <td
+                          style={{
+                            padding: round.roundNumber === currentRound ? "var(--space-3)" : "var(--space-2)",
+                            textAlign: "center",
+                            fontWeight: "var(--font-weight-bold)",
+                            color: "var(--primary-600)",
+                            fontSize: "var(--font-size-lg)",
+                            borderRight: "2px solid var(--gray-200)",
+                          }}
+                        >
+                          {round.letter}
+                        </td>
+                        {CATEGORIES.map((cat) => {
+                          const answer = round.answersByPlayer[player]?.[cat.key];
+                          const canVote = !!answer;
+                          return (
+                            <td
+                              key={cat.key}
+                              style={{
+                                padding: round.roundNumber === currentRound ? "var(--space-3)" : "var(--space-2)",
+                                textAlign: "center",
+                                borderRight: "1px solid var(--gray-200)",
+                                fontSize: "var(--font-size-sm)",
+                                color: canVote ? "var(--gray-700)" : "var(--gray-300)",
+                                fontWeight: "var(--font-weight-medium)",
+                                position: "relative",
+                              }}
+                            >
+                              <div style={{ position: "relative", display: "inline-block" }} onMouseEnter={() => setHoveredCell({ round: round.roundNumber, player, category: cat.key })} onMouseLeave={() => setHoveredCell((prev) => (prev && prev.round === round.roundNumber && prev.player === player && prev.category === cat.key ? null : prev))}>
+                                <span>{answer || "-"}</span>
+                                {canVote && round.roundNumber === currentRound && hoveredCell && hoveredCell.round === round.roundNumber && hoveredCell.player === player && hoveredCell.category === cat.key && (
+                                  <div
+                                    className="fade-in"
+                                    style={{
+                                      position: "relative",
+                                      top: "100%",
+                                      left: "0%",
+                                      display: "flex",
+                                      gap: 4,
+                                      paddingTop: 6,
+                                    }}
+                                  >
+                                    <Button size="sm" variant="error" onClick={() => emit("vote_answer", { gameCode, voter: username, target: player, category: cat.key, points: 0 })}>
+                                      🥲
+                                    </Button>
+                                    <Button size="sm" variant="warning" onClick={() => emit("vote_answer", { gameCode, voter: username, target: player, category: cat.key, points: 5 })}>
+                                      🤔
+                                    </Button>
+                                    <Button size="sm" variant="success" onClick={() => emit("vote_answer", { gameCode, voter: username, target: player, category: cat.key, points: 10 })}>
+                                      🤩
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
+                        <td
+                          style={{
+                            padding: round.roundNumber === currentRound ? "var(--space-3)" : "var(--space-2)",
+                            textAlign: "center",
+                            fontWeight: "var(--font-weight-bold)",
+                            color: "var(--success-700)",
+                          }}
+                        >
+                          {round.roundPoints?.[player] ?? 0} pts
+                        </td>
+                      </tr>
+                    ));
+                  })}
 
                   {/* Fila de la ronda actual (si está jugando) */}
                   {isPlaying && (
@@ -626,7 +708,7 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
             )}
 
             {/* Botón siguiente ronda (solo para host cuando no está jugando) */}
-            {isHost && !isPlaying && rounds.length > 0 && (
+            {isHost && !isPlaying && rounds.length > 0 && !isReadyPhase && (
               <div style={{ textAlign: "center", marginTop: "var(--space-6)" }}>
                 <Button onClick={handleNextRound} size="lg" variant="primary">
                   Siguiente Ronda
