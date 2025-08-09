@@ -57,7 +57,8 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
   const [totalPlayers, setTotalPlayers] = useState<number>(0);
   const [readyTimeLeft, setReadyTimeLeft] = useState<number>(0);
   const [, setVotes] = useState<Record<string, Record<string, Record<string, number>>>>({});
-  const [hoveredCell, setHoveredCell] = useState<{ round: number; player: string; category: string } | null>(null);
+  // const [hoveredCell, setHoveredCell] = useState<{ round: number; player: string; category: string } | null>(null);
+  const [buttonClicked, setButtonClicked] = useState<{ key: string }[]>([]);
 
   useEffect(() => {
     if (!socket) {
@@ -96,6 +97,29 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
       if (data.isNewRound) {
         console.log("Nueva ronda iniciada:", data.roundNumber);
       }
+
+      // Asegurar consistencia de rondas: crear/actualizar entrada vacía de la ronda en curso
+      setRounds((prev) => {
+        const rn = data.roundNumber || 1;
+        const idx = prev.findIndex((r) => r.roundNumber === rn);
+        if (idx === -1) {
+          return [
+            ...prev,
+            {
+              roundNumber: rn,
+              letter: data.letter || currentLetter,
+              answersByPlayer: {},
+              finishedBy: "",
+              scores: {},
+              timeLeft: 60,
+              roundPoints: {},
+            },
+          ];
+        }
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], roundNumber: rn, letter: data.letter || copy[idx].letter };
+        return copy;
+      });
     });
 
     // Fase de confirmación para nueva ronda
@@ -115,15 +139,17 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
     });
 
     // Listen when someone finishes the round
-    on("round_finished", (data: { finishedBy: string; answersByPlayer: Record<string, Record<string, string>>; letter?: string; scores: Record<string, number>; roundNumber: number }) => {
+    on("round_finished", (data: { finishedBy: string; answersByPlayer?: Record<string, Record<string, string>>; letter?: string; scores: Record<string, number>; roundNumber: number; answers?: Record<string, string> }) => {
       console.log("Ronda terminada por:", data.finishedBy);
       console.log("Puntuaciones actualizadas:", data.scores);
 
       // Construir/actualizar la ronda con todas las respuestas conocidas
+      const fallbackAnswersByPlayer: Record<string, Record<string, string>> = data.answersByPlayer && Object.keys(data.answersByPlayer).length > 0 ? data.answersByPlayer : { [data.finishedBy]: data.answers || {} };
+
       const newRound: RoundData = {
         roundNumber: data.roundNumber,
         letter: data.letter || currentLetter,
-        answersByPlayer: data.answersByPlayer || {},
+        answersByPlayer: fallbackAnswersByPlayer,
         finishedBy: data.finishedBy,
         scores: data.scores,
         timeLeft: timeLeft,
@@ -153,6 +179,9 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
       });
       setCurrentScores(data.scores);
       setIsPlaying(false);
+      // Sincronizar ronda/letra por seguridad (puede haber llegado antes de game_started)
+      setCurrentRound(data.roundNumber || 1);
+      if (data.letter) setCurrentLetter(data.letter);
 
       // Si yo no fui quien terminó y aún estaba jugando, envío mis respuestas parciales
       if (username !== data.finishedBy && isPlaying && Object.keys(currentInputs).length > 0) {
@@ -615,12 +644,12 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
                         >
                           {round.letter}
                         </td>
-                        {CATEGORIES.map((cat) => {
+                        {CATEGORIES.map((cat,index) => {
                           const answer = round.answersByPlayer[player]?.[cat.key];
                           const canVote = !!answer;
                           return (
                             <td
-                              key={cat.key}
+                              key={`${cat.key}-${player}-${round.roundNumber}-${index}`}
                               style={{
                                 padding: round.roundNumber === currentRound ? "var(--space-3)" : "var(--space-2)",
                                 textAlign: "center",
@@ -631,31 +660,69 @@ export const Game: React.FC<GameProps> = ({ username, gameCode, isHost, gameData
                                 position: "relative",
                               }}
                             >
-                              <div style={{ position: "relative", display: "inline-block" }} onMouseEnter={() => setHoveredCell({ round: round.roundNumber, player, category: cat.key })} onMouseLeave={() => setHoveredCell((prev) => (prev && prev.round === round.roundNumber && prev.player === player && prev.category === cat.key ? null : prev))}>
+                              <div
+                                style={{ position: "relative", display: "inline-block" }}
+                                // onMouseEnter={() => setHoveredCell({ round: round.roundNumber, player, category: cat.key })} onMouseLeave={() => setHoveredCell((prev) => (prev && prev.round === round.roundNumber && prev.player === player && prev.category === cat.key ? null : prev))}
+                              >
                                 <span>{answer || "-"}</span>
-                                {canVote && round.roundNumber === currentRound && hoveredCell && hoveredCell.round === round.roundNumber && hoveredCell.player === player && hoveredCell.category === cat.key && (
-                                  <div
-                                    className="fade-in"
-                                    style={{
-                                      position: "relative",
-                                      top: "100%",
-                                      left: "0%",
-                                      display: "flex",
-                                      gap: 4,
-                                      paddingTop: 6,
-                                    }}
-                                  >
-                                    <Button size="sm" variant="error" onClick={() => emit("vote_answer", { gameCode, voter: username, target: player, category: cat.key, points: 0 })}>
-                                      🥲
-                                    </Button>
-                                    <Button size="sm" variant="warning" onClick={() => emit("vote_answer", { gameCode, voter: username, target: player, category: cat.key, points: 5 })}>
-                                      🤔
-                                    </Button>
-                                    <Button size="sm" variant="success" onClick={() => emit("vote_answer", { gameCode, voter: username, target: player, category: cat.key, points: 10 })}>
-                                      🤩
-                                    </Button>
-                                  </div>
-                                )}
+                                {
+                                  // canVote && round.roundNumber === currentRound && hoveredCell && hoveredCell.round === round.roundNumber && hoveredCell.player === player && hoveredCell.category === cat.key
+                                  round.roundNumber === currentRound && canVote && (
+                                    <div
+                                      className="fade-in"
+                                      style={{
+                                        position: "relative",
+                                        top: "100%",
+                                        left: "0%",
+                                        display: "flex",
+                                        gap: 4,
+                                        paddingTop: 6,
+                                      }}
+                                    >
+                                      <Button size="sm" variant={`${buttonClicked.some((b) => b.key === `${cat.key}-${player}-${round.roundNumber}-${index}-error`) ? "primary" : "error"}`} onClick={() => {
+                                        emit("vote_answer", { gameCode, voter: username, target: player, category: cat.key, points: 0, roundNumber: round.roundNumber });
+                                        setButtonClicked((prev) => {
+                                          // we can only have one button clicked at a time
+                                          // so we need to remove the index-warning and index-success
+                                          const addNew = [...prev, { key: `${cat.key}-${player}-${round.roundNumber}-${index}-error` }];
+                                          // remove the index-warning and index-success
+                                          const newButtonClicked = addNew.filter((b) => b.key !== `${cat.key}-${player}-${round.roundNumber}-${index}-warning` && b.key !== `${cat.key}-${player}-${round.roundNumber}-${index}-success`);
+                                          return newButtonClicked;
+                                        });
+                                      }}
+                                      >
+                                        🥲
+                                      </Button>
+                                      <Button size="sm" variant={`${buttonClicked.some((b) => b.key === `${cat.key}-${player}-${round.roundNumber}-${index}-warning`) ? "primary" : "warning"}`} onClick={() => {
+                                        emit("vote_answer", { gameCode, voter: username, target: player, category: cat.key, points: 5, roundNumber: round.roundNumber });
+                                        setButtonClicked((prev) => {
+                                          // we can only have one button clicked at a time
+                                          // so we need to remove the index-error and index-success
+                                          const addNew = [...prev, { key: `${cat.key}-${player}-${round.roundNumber}-${index}-warning` }];
+                                          // remove the index-error and index-success
+                                          const newButtonClicked = addNew.filter((b) => b.key !== `${cat.key}-${player}-${round.roundNumber}-${index}-error` && b.key !== `${cat.key}-${player}-${round.roundNumber}-${index}-success`);
+                                          return newButtonClicked;
+                                        });
+                                      }}
+                                      >
+                                        🤔
+                                      </Button>
+                                      <Button size="sm" variant={`${buttonClicked.some((b) => b.key === `${cat.key}-${player}-${round.roundNumber}-${index}-success`) ? "primary" : "success"}`} onClick={() => {
+                                        emit("vote_answer", { gameCode, voter: username, target: player, category: cat.key, points: 10, roundNumber: round.roundNumber });
+                                        setButtonClicked((prev) => {
+                                          // Add index-success but remove the index-error and index-warning
+                                          const addNew = [...prev, { key: `${cat.key}-${player}-${round.roundNumber}-${index}-success` }];
+                                          // remove the index-error and index-warning
+                                          const newButtonClicked = addNew.filter((b) => b.key !== `${cat.key}-${player}-${round.roundNumber}-${index}-error` && b.key !== `${cat.key}-${player}-${round.roundNumber}-${index}-warning`);
+                                          return newButtonClicked;
+                                        });
+                                      }}
+                                      >
+                                        🤩
+                                      </Button>
+                                    </div>
+                                  )
+                                }
                               </div>
                             </td>
                           );

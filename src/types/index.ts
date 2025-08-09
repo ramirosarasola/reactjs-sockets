@@ -108,7 +108,7 @@ export interface SocketEvents {
     username: string;
     answers: Record<string, string>;
   };
-  vote_answer: { gameCode: string; voter: string; target: string; category: string; points: number };
+  vote_answer: { gameCode: string; voter: string; target: string; category: string; points: number; roundNumber?: number };
 
   // Servidor → Cliente
   joined_game: { gameCode: string; username: string };
